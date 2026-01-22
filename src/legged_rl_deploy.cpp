@@ -105,13 +105,35 @@ void LeggedRLDeploy::registryAllObs() {
     std::vector<double> out(static_cast<size_t>(q.size()));
     for (int i = 0; i < q.size(); ++i) {
       out[static_cast<size_t>(i)] =
-          q[i] - cfg_.default_joint_pos[static_cast<size_t>(i)];
+          q[cfg_.joint_ids_map[i]] - cfg_.default_joint_pos[static_cast<size_t>(i)];
+    }
+    return out;
+  });
+
+  obs_registry_.Register("joint_pos", [this](const ObsTerm&) {
+    const auto q = real_state_.joint_pos();
+    if (q.size() != static_cast<int>(cfg_.default_joint_pos.size())) {
+      throw std::runtime_error("joint_pos: joint_pos size mismatch with default_joint_pos.");
+    }
+    std::vector<double> out(static_cast<size_t>(q.size()));
+    for (int i = 0; i < q.size(); ++i) {
+      out[static_cast<size_t>(i)] =
+          q[cfg_.joint_ids_map[i]];
     }
     return out;
   });
 
   obs_registry_.Register("joint_vel_rel", [this](const ObsTerm&) {
-    return LeggedAI::eigenToStdVec(real_state_.joint_vel());
+    const auto dq = real_state_.joint_vel();
+    if (dq.size() != static_cast<int>(cfg_.default_joint_pos.size())) {
+      throw std::runtime_error("joint_vel_rel: joint_vel size mismatch with default_joint_pos.");
+    }
+    std::vector<double> out(static_cast<size_t>(dq.size()));
+    for (int i = 0; i < dq.size(); ++i) {
+      out[static_cast<size_t>(i)] =
+          dq[cfg_.joint_ids_map[i]];
+    }
+    return out;
   });
 }
 
