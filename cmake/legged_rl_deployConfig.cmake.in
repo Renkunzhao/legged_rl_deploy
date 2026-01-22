@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(unitree_lowlevel)
+find_dependency(legged_model)
+
+include("${CMAKE_CURRENT_LIST_DIR}/legged_rl_deployTargets.cmake")
