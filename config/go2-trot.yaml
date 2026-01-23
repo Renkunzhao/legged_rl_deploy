@@ -1,0 +1,80 @@
+# lowlevel controller
+llc_config_file:
+  /root/code/go2_ws/src/unitree_lowlevel/config/go2.yaml
+
+policy:
+  backend: libtorch
+  model_path: /root/code/go2_ws/src/legged_rl_deploy/policies/go2_trot.pt  # 你自己换
+  input_dim: 470          # 47 * 10
+  output_dim: 12
+  policy_dt: 0.02
+
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  stiffness: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+  damping:   [0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5]
+
+  # deploy.py: action clip(100) -> action_scale(0.25) -> target_q, PD里再加 default_dof_pos
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -100.0
+      max: 100.0
+      scale: 0.25
+      offset: [0.0, 0.8, -1.5,  -0.0, 0.8, -1.5,  0.0, 0.8, -1.5,  -0.0, 0.8, -1.5]
+
+  # deploy.py 里 x_vel_cmd/y_vel_cmd/yaw_vel_cmd 没有 clamp，但通常建议 clamp 到 ranges
+  commands:
+    base_velocity:
+      process_order: [clip]
+      min: [-1.5, -1.0, -3.0]
+      max: [ 1.5,  1.0,  3.0]
+
+  observations:
+    stack:
+      length: 10
+      order: oldest_first   # ✅ 与 deploy.py 一致
+
+    # 47维单帧：严格按 deploy.py 的 index 顺序
+    terms:
+      gait_phase_2:          # obs[0:2] = sin/cos(2pi t / cycle_time)
+        params:
+          cycle_time: 0.5  # cfg.rewards.cycle_time
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+
+      velocity_commands:   # obs[2:5] = [x,y,yaw] * scales
+        process_order: [scale, clip]
+        scale: [2.0, 2.0, 0.25]    # lin_vel=2.0, ang_vel=0.25
+        min: -100.0
+        max: 100.0
+
+      base_ang_vel_W:        # obs[5:8] = omega * 0.25
+        process_order: [scale, clip]
+        scale: [0.25, 0.25, 0.25]  # cfg.normalization.obs_scales.ang_vel
+        min: -100.0
+        max: 100.0
+
+      eulerZYX_rpy:        # obs[8:11] = euler(rpy) * 1.0
+        process_order: [scale, clip]
+        scale: [1.0, 1.0, 1.0]     # cfg.normalization.obs_scales.quat
+        min: -100.0
+        max: 100.0
+
+      joint_pos:       # obs[11:23] = (q - default) * 1.0
+        process_order: [offset, scale, clip]
+        offset: [0.0, -0.8, 1.5,  -0.0, -0.8, 1.5,  0.0, -0.8, 1.5,  -0.0, -0.8, 1.5]
+        scale: 1.0
+        min: -100.0
+        max: 100.0
+
+      joint_vel:           # obs[23:35] = dq * 0.05
+        process_order: [scale, clip]
+        scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+        min: -100.0
+        max: 100.0
+
+      last_action:         # obs[35:47] = prev_action（deploy.py 这里直接塞 action）
+        process_order: [clip]
+        min: -100.0
+        max: 100.0

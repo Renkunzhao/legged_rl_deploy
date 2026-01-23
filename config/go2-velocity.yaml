@@ -31,7 +31,7 @@ policy:
       length: 1
       order: newest_first
     terms:
-      base_ang_vel:
+      base_ang_vel_B:
         process_order: [clip, scale]
         min: -100.0
         max: 100.0

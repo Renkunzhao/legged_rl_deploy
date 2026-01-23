@@ -110,10 +110,57 @@ void LeggedRLDeploy::assembleObsFrame() {
   for (const auto& t : obs_terms_) {
     std::vector<float> v(t.dim, 0.0f);
 
-    if (t.name == "base_ang_vel") {
-      v[0] = lowstate_msg_.imu_state.gyroscope[0];
-      v[1] = lowstate_msg_.imu_state.gyroscope[1];
-      v[2] = lowstate_msg_.imu_state.gyroscope[2];
+    if (t.name == "gait_phase_2") {
+      const float phase = loop_cnt_ * ll_dt_ / 0.5;
+      v[0] = sinf(2.0f * M_PI * phase);
+      v[1] = cosf(2.0f * M_PI * phase);
+    } else if (t.name == "base_ang_vel_W") {
+      v[0] = real_state_.base_ang_vel_W()[0];
+      v[1] = real_state_.base_ang_vel_W()[1];
+      v[2] = real_state_.base_ang_vel_W()[2];
+    } else if (t.name == "base_ang_vel_B") {
+      v[0] = real_state_.base_ang_vel_B()[0];
+      v[1] = real_state_.base_ang_vel_B()[1];
+      v[2] = real_state_.base_ang_vel_B()[2];
+    } else if (t.name == "eulerZYX_rpy") {
+      // v[0] = real_state_.base_eulerZYX()[2];
+      // v[1] = real_state_.base_eulerZYX()[1];
+      // v[2] = real_state_.base_eulerZYX()[0];
+      auto quat_to_rpy = [](const Eigen::Quaterniond& q_in) -> std::vector<float> {
+          // Python 里 quat = [x, y, z, w]
+          const double x = q_in.x();
+          const double y = q_in.y();
+          const double z = q_in.z();
+          const double w = q_in.w();
+
+          // roll (x)
+          const double t0 = 2.0 * (w * x + y * z);
+          const double t1 = 1.0 - 2.0 * (x * x + y * y);
+          double roll = std::atan2(t0, t1);
+
+          // pitch (y)
+          double t2 = 2.0 * (w * y - z * x);
+          t2 = std::clamp(t2, -1.0, 1.0);
+          double pitch = std::asin(t2);
+
+          // yaw (z)
+          const double t3 = 2.0 * (w * z + x * y);
+          const double t4 = 1.0 - 2.0 * (y * y + z * z);
+          double yaw = std::atan2(t3, t4);
+
+          std::vector<float> rpy = {(float)roll, (float)pitch, (float)yaw};
+
+          // 对齐 Python:
+          // eu_ang[eu_ang > pi] -= 2*pi
+          for (int i = 0; i < 3; ++i) {
+              if (rpy[i] > M_PI) {
+                  rpy[i] -= 2.0 * M_PI;
+              }
+          }
+
+          return rpy;
+      };
+      v = quat_to_rpy(real_state_.base_quat());
     } else if (t.name == "projected_gravity") {
       Eigen::Vector3d g = real_state_.base_quat().conjugate() * Eigen::Vector3d(0,0,-1);
       v[0] = (float)g[0]; v[1] = (float)g[1]; v[2] = (float)g[2];

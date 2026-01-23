@@ -55,8 +55,11 @@ private:
   std::deque<std::vector<float>> obs_hist_;      // 历史帧
 
   size_t DimOfObsTerm(const std::string& name) {
-    if (name == "base_ang_vel") return 3;
+    if (name == "gait_phase_2") return 2;
+    if (name == "base_ang_vel_W") return 3;
+    if (name == "base_ang_vel_B") return 3;
     if (name == "projected_gravity") return 3;
+    if (name == "eulerZYX_rpy") return 3;  // eulerZYX in rpy order
     if (name == "velocity_commands") return 3;
     if (name == "joint_pos") return robot_model_.nJoints();
     if (name == "joint_vel") return robot_model_.nJoints();
