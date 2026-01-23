@@ -19,21 +19,21 @@ void LeggedRLDeploy::initHighController() {
   const std::string backend    = pnode["backend"].as<std::string>("torch");
   const std::string model_path = pnode["model_path"].as<std::string>();
 
-  obs_dim_ = pnode["obs_dim"].as<size_t>();
-  act_dim_ = pnode["act_dim"].as<size_t>();
+  input_dim_ = pnode["input_dim"].as<size_t>();
+  output_dim_ = pnode["output_dim"].as<size_t>();
 
   policy_runner_ = makePolicyRunner(backend);
-  policy_runner_->load(model_path, obs_dim_, act_dim_);
+  policy_runner_->load(model_path, input_dim_, output_dim_);
   std::cout << "[LeggedRLDeploy] Policy load successfully." << std::endl;
 
-  obs_buf_.assign(obs_dim_, 0.0f);
-  act_buf_.assign(act_dim_, 0.0f);
-  last_action_.assign(act_dim_, 0.0f);
+  input_buf_.assign(input_dim_, 0.0f);
+  output_buf_.assign(output_dim_, 0.0f);
 
   policy_dt_ = pnode["policy_dt"].as<float>(0.02f);
   joint_ids_map_ = pnode["joint_ids_map"].as<std::vector<size_t>>();
   stiffness_ = pnode["stiffness"].as<std::vector<float>>();
   damping_ = pnode["damping"].as<std::vector<float>>();
+  last_action_.assign(damping_.size(), 0.0f);
 
   // -------- commands --------
   if (pnode["commands"]) {
@@ -53,50 +53,60 @@ void LeggedRLDeploy::initHighController() {
     }
   }
 
+  stack_len_ = pnode["observations"]["stack"]["length"].as<size_t>();
+  stack_order_ = pnode["observations"]["stack"]["order"].as<std::string>();
   registryObsTerms(pnode["observations"]["terms"]);
 
-  std::cout << "[LeggedRLDeploy] init done. obs_dim=" << obs_dim_
-            << " act_dim=" << act_dim_ << std::endl;
+  std::cout << "[LeggedRLDeploy] init done. input_dim=" << input_dim_
+            << " output_dim=" << output_dim_ << std::endl;
 }
 
 void LeggedRLDeploy::resetHighController() {
-  std::fill(obs_buf_.begin(), obs_buf_.end(), 0.0f);
-  std::fill(act_buf_.begin(), act_buf_.end(), 0.0f);
+  std::fill(input_buf_.begin(), input_buf_.end(), 0.0f);
+  std::fill(output_buf_.begin(), output_buf_.end(), 0.0f);
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
+  obs_hist_.clear();
 }
 
 void LeggedRLDeploy::registryObsTerms(YAML::Node node) {
-  // -------- observations (from yaml, order preserved) --------
   obs_terms_.clear();
   size_t off = 0;
 
-  const auto terms = node;
-  if (!terms || !terms.IsMap()) {
+  if (!node || !node.IsMap()) {
     throw std::runtime_error("[LeggedRLDeploy] policy.observations.terms missing or not a map");
   }
 
-  for (auto it = terms.begin(); it != terms.end(); ++it) {
+  for (auto it = node.begin(); it != node.end(); ++it) {
     ObsTerm t;
     t.name = it->first.as<std::string>();
     t.dim = DimOfObsTerm(t.name);
     t.offset = off;
     off += t.dim;
 
-    auto maybe = Processor::TryLoad(it->second);  // 没有 process_order => nullopt
+    auto maybe = Processor::TryLoad(it->second);
     if (maybe) t.proc = std::move(*maybe);
 
     obs_terms_.push_back(std::move(t));
   }
 
-  if (off != obs_dim_) {
-    throw std::runtime_error("[LeggedRLDeploy] obs_dim mismatch: built=" +
-                             std::to_string(off) + " cfg obs_dim=" +
-                             std::to_string(obs_dim_));
+  obs_dim_ = off;
+
+  const size_t expected = obs_dim_ * stack_len_;
+  if (expected != input_dim_) {
+    throw std::runtime_error("[LeggedRLDeploy] input_dim mismatch: obs_dim=" +
+                             std::to_string(obs_dim_) + " stack_len=" +
+                             std::to_string(stack_len_) + " expected=" +
+                             std::to_string(expected) + " cfg input_dim=" +
+                             std::to_string(input_dim_));
   }
+
+  obs_now_.assign(obs_dim_, 0.0f);
+  obs_hist_.clear();
 }
 
-void LeggedRLDeploy::assembleObs() {
-  // -------- build obs by terms order --------
+void LeggedRLDeploy::assembleObsFrame() {
+  std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
+
   for (const auto& t : obs_terms_) {
     std::vector<float> v(t.dim, 0.0f);
 
@@ -104,55 +114,84 @@ void LeggedRLDeploy::assembleObs() {
       v[0] = lowstate_msg_.imu_state.gyroscope[0];
       v[1] = lowstate_msg_.imu_state.gyroscope[1];
       v[2] = lowstate_msg_.imu_state.gyroscope[2];
-    }
-    else if (t.name == "projected_gravity") {
-      Eigen::Vector3d projected_gravity = real_state_.base_quat().conjugate() * Eigen::Vector3d(0.0f, 0.0f, -1.0f);
-      v[0] = projected_gravity[0];
-      v[1] = projected_gravity[1];
-      v[2] = projected_gravity[2];
-    }
-    else if (t.name == "velocity_commands") {
+    } else if (t.name == "projected_gravity") {
+      Eigen::Vector3d g = real_state_.base_quat().conjugate() * Eigen::Vector3d(0,0,-1);
+      v[0] = (float)g[0]; v[1] = (float)g[1]; v[2] = (float)g[2];
+    } else if (t.name == "velocity_commands") {
       v = {gamepad_.ly, -gamepad_.lx, -gamepad_.rx};
-      commands_["base_velocity"].process(v);
-    }
-    else if (t.name == "joint_pos") {
-      for (size_t i = 0; i < robot_model_.nJoints(); ++i) v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].q;
-    }
-    else if (t.name == "joint_vel") {
-      for (size_t i = 0; i < robot_model_.nJoints(); ++i) v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].dq;
-    }
-    else if (t.name == "last_action") {
-      v = last_action_; // prev action
+      auto it = commands_.find("base_velocity");
+      if (it != commands_.end()) it->second.process(v);
+    } else if (t.name == "joint_pos") {
+      for (size_t i = 0; i < robot_model_.nJoints(); ++i)
+        v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].q;
+    } else if (t.name == "joint_vel") {
+      for (size_t i = 0; i < robot_model_.nJoints(); ++i)
+        v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].dq;
+    } else if (t.name == "last_action") {
+      v = last_action_;
+    } else {
+      throw std::runtime_error("Unknown obs term: " + t.name);
     }
 
     if (t.proc) t.proc->process(v);
+    std::copy(v.begin(), v.end(), obs_now_.begin() + t.offset);
+  }
+}
 
-    std::copy(v.begin(), v.end(), obs_buf_.begin() + t.offset);
+void LeggedRLDeploy::stackObsGlobal() {
+  // push newest to back, keep length
+  obs_hist_.push_back(obs_now_);
+  while (obs_hist_.size() > stack_len_) obs_hist_.pop_front();
+
+  // warm start: 没满就用最旧的复制补齐
+  while (obs_hist_.size() < stack_len_) obs_hist_.push_front(obs_hist_.front());
+
+  // flatten
+  size_t out = 0;
+  if (stack_order_ == "newest_first") {
+    for (size_t k = 0; k < stack_len_; ++k) {
+      const auto& fr = obs_hist_[stack_len_ - 1 - k];  // newest -> oldest
+      std::copy(fr.begin(), fr.end(), input_buf_.begin() + out);
+      out += obs_dim_;
+    }
+  } else {
+    for (size_t k = 0; k < stack_len_; ++k) {
+      const auto& fr = obs_hist_[k];                   // oldest -> newest
+      std::copy(fr.begin(), fr.end(), input_buf_.begin() + out);
+      out += obs_dim_;
+    }
   }
 }
 
 void LeggedRLDeploy::updateHighController() {
-  std::fill(obs_buf_.begin(), obs_buf_.end(), 0.0f);
+  // 1) build current frame
+  assembleObsFrame();
 
-  // -------- observation assemble --------
-  assembleObs();
+  // 2) stack to input_buf_
+  if (stack_len_ == 1) {
+    std::copy(obs_now_.begin(), obs_now_.end(), input_buf_.begin());
+  } else {
+    stackObsGlobal();
+  }
 
-  // -------- policy infer --------
-  policy_runner_->infer(obs_buf_.data(), act_buf_.data());
+  // 3) infer
+  policy_runner_->infer(input_buf_.data(), output_buf_.data());
 
-  // -------- update last_action (prev) --------
-  last_action_ = act_buf_;
+  // 4) last_action must be RAW
+  last_action_ = output_buf_;
 
-  // -------- action process --------
-  actions_["JointPositionAction"].process(act_buf_);
+  // 5) action postprocess
+  auto it = actions_.find("JointPositionAction");
+  if (it != actions_.end()) it->second.process(output_buf_);
 
-  // -------- send lowcmd --------
-  for (size_t i = 0; i < act_dim_; ++i) {
-    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].q  = act_buf_[i];
-    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].kp = stiffness_[i];
-    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].kd = damping_[i];
-    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].dq = 0.0;
-    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].tau = 0.0;
+  // 6) send lowcmd (remember dq/tau!)
+  for (size_t i = 0; i < output_dim_; ++i) {
+    const size_t j = joint_ids_map_[i];
+    lowcmd_msg_.motor_cmd[j].q   = output_buf_[i];
+    lowcmd_msg_.motor_cmd[j].kp  = stiffness_[i];
+    lowcmd_msg_.motor_cmd[j].kd  = damping_[i];
+    lowcmd_msg_.motor_cmd[j].dq  = 0.0f;
+    lowcmd_msg_.motor_cmd[j].tau = 0.0f;
   }
 }
 

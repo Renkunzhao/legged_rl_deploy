@@ -13,7 +13,7 @@ public:
 
 private:
   torch::jit::script::Module policy_;
-  torch::Tensor input_;   // [1, obs_dim] float32 CPU
+  torch::Tensor input_;   // [1, input_dim] float32 CPU
 };
 
 }  // namespace legged_rl_deploy
