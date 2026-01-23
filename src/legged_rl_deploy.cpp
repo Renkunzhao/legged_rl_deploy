@@ -3,12 +3,9 @@
 #include <algorithm>
 #include <iostream>
 #include <memory>
+#include <vector>
 
-#include "legged_rl_deploy/observation_assembler.h"
-#include "legged_rl_deploy/observation_registry.h"
 #include "legged_rl_deploy/policy/policy_factory.h"
-#include "legged_rl_deploy/deploy_config_loader.h"
-#include "legged_model/Utils.h"
 
 namespace legged_rl_deploy {
 
@@ -19,149 +16,143 @@ LeggedRLDeploy::LeggedRLDeploy(std::string configFile) {
 
 void LeggedRLDeploy::initHighController() {
   const auto& pnode = configNode_["policy"];
-  const std::string backend   = pnode["backend"].as<std::string>("torch");
-  const std::string model_path= pnode["model_path"].as<std::string>();
-  obs_dim_ = pnode["obs_dim"].as<int>();
-  act_dim_ = pnode["act_dim"].as<int>();
+  const std::string backend    = pnode["backend"].as<std::string>("torch");
+  const std::string model_path = pnode["model_path"].as<std::string>();
 
-  cfg_ = LoadDeployConfigFromNode(pnode, act_dim_);
+  obs_dim_ = pnode["obs_dim"].as<size_t>();
+  act_dim_ = pnode["act_dim"].as<size_t>();
 
   policy_runner_ = makePolicyRunner(backend);
   policy_runner_->load(model_path, obs_dim_, act_dim_);
   std::cout << "[LeggedRLDeploy] Policy load successfully." << std::endl;
 
-  // 3) Init ObservationAssembler (包含维度校验)
-  obs_asm_ = std::make_unique<ObservationAssembler>(cfg_.observations, obs_dim_);
-  obs_buf_.assign(static_cast<size_t>(obs_dim_), 0.0f);
+  obs_buf_.assign(obs_dim_, 0.0f);
+  act_buf_.assign(act_dim_, 0.0f);
+  last_action_.assign(act_dim_, 0.0f);
 
-  // 3.1) Init ObservationRegistry
-  registryAllObs();
+  policy_dt_ = pnode["policy_dt"].as<float>(0.02f);
+  joint_ids_map_ = pnode["joint_ids_map"].as<std::vector<size_t>>();
+  stiffness_ = pnode["stiffness"].as<std::vector<float>>();
+  damping_ = pnode["damping"].as<std::vector<float>>();
 
-  // 4) Init ActionProcessor（JointPositionAction）
-  if (!cfg_.actions.joint_position.has_value()) {
-    throw std::runtime_error("actions.joint_position is missing in YAML.");
-  }
-  act_proc_ = std::make_unique<JointPositionActionProcessor>(
-      cfg_.actions.joint_position.value(),
-      cfg_.joint_ids_map,
-      act_dim_);
-
-  act_buf_.assign(static_cast<size_t>(act_dim_), 0.0f);
-  last_action_.assign(static_cast<size_t>(act_dim_), 0.0f);
-  default_joint_pos_f_ = LeggedAI::stdVecDoubleToFloat(cfg_.default_joint_pos);
-
-  const int robot_dof = static_cast<int>(cfg_.joint_ids_map.size());
-  kp_robot_.assign(static_cast<size_t>(robot_dof), 0.0f);
-  kd_robot_.assign(static_cast<size_t>(robot_dof), 0.0f);
-  for (int j_internal = 0; j_internal < robot_dof; ++j_internal) {
-    const int j_robot = cfg_.joint_ids_map[static_cast<size_t>(j_internal)];
-    kp_robot_[static_cast<size_t>(j_robot)] =
-        static_cast<float>(cfg_.stiffness[static_cast<size_t>(j_internal)]);
-    kd_robot_[static_cast<size_t>(j_robot)] =
-        static_cast<float>(cfg_.damping[static_cast<size_t>(j_internal)]);
+  // -------- commands --------
+  if (pnode["commands"]) {
+    for (auto it = pnode["commands"].begin(); it != pnode["commands"].end(); ++it) {
+      const std::string name = it->first.as<std::string>();
+      auto maybe = Processor::TryLoad(it->second);
+      if (maybe) commands_.emplace(name, std::move(*maybe));
+    }
   }
 
-  // 6) reset history buffers
-  obs_asm_->Reset();
+  // -------- actions --------
+  if (pnode["actions"]) {
+    for (auto it = pnode["actions"].begin(); it != pnode["actions"].end(); ++it) {
+      const std::string name = it->first.as<std::string>();
+      auto maybe = Processor::TryLoad(it->second);
+      if (maybe) actions_.emplace(name, std::move(*maybe));
+    }
+  }
+
+  registryObsTerms(pnode["observations"]["terms"]);
 
   std::cout << "[LeggedRLDeploy] init done. obs_dim=" << obs_dim_
             << " act_dim=" << act_dim_ << std::endl;
 }
 
-void LeggedRLDeploy::registryAllObs() {
-  obs_registry_.Register("base_ang_vel", [this](const ObsTerm&) {
-    return LeggedAI::eigenToStdVec(real_state_.base_ang_vel_B());
-  });
+void LeggedRLDeploy::resetHighController() {
+  std::fill(obs_buf_.begin(), obs_buf_.end(), 0.0f);
+  std::fill(act_buf_.begin(), act_buf_.end(), 0.0f);
+  std::fill(last_action_.begin(), last_action_.end(), 0.0f);
+}
 
-  obs_registry_.Register("projected_gravity", [this](const ObsTerm&) {
-    const Eigen::Vector3d gravity_w(0.0, 0.0, -1.0);
-    const Eigen::Vector3d gravity_b = real_state_.base_quat().conjugate() * gravity_w;
-    return LeggedAI::eigenToStdVec(gravity_b);
-  });
+void LeggedRLDeploy::registryObsTerms(YAML::Node node) {
+  // -------- observations (from yaml, order preserved) --------
+  obs_terms_.clear();
+  size_t off = 0;
 
-  obs_registry_.Register("velocity_commands", [this](const ObsTerm& term) {
-    auto it = term.params.find("command_name");
-    const std::string command_name = (it == term.params.end()) ? "base_velocity" : it->second;
-    if (command_name != "base_velocity") {
-      throw std::runtime_error("Unsupported command_name in velocity_commands: " + command_name);
+  const auto terms = node;
+  if (!terms || !terms.IsMap()) {
+    throw std::runtime_error("[LeggedRLDeploy] policy.observations.terms missing or not a map");
+  }
+
+  for (auto it = terms.begin(); it != terms.end(); ++it) {
+    ObsTerm t;
+    t.name = it->first.as<std::string>();
+    t.dim = DimOfObsTerm(t.name);
+    t.offset = off;
+    off += t.dim;
+
+    auto maybe = Processor::TryLoad(it->second);  // 没有 process_order => nullopt
+    if (maybe) t.proc = std::move(*maybe);
+
+    obs_terms_.push_back(std::move(t));
+  }
+
+  if (off != obs_dim_) {
+    throw std::runtime_error("[LeggedRLDeploy] obs_dim mismatch: built=" +
+                             std::to_string(off) + " cfg obs_dim=" +
+                             std::to_string(obs_dim_));
+  }
+}
+
+void LeggedRLDeploy::assembleObs() {
+  // -------- build obs by terms order --------
+  for (const auto& t : obs_terms_) {
+    std::vector<float> v(t.dim, 0.0f);
+
+    if (t.name == "base_ang_vel") {
+      v[0] = lowstate_msg_.imu_state.gyroscope[0];
+      v[1] = lowstate_msg_.imu_state.gyroscope[1];
+      v[2] = lowstate_msg_.imu_state.gyroscope[2];
+    }
+    else if (t.name == "projected_gravity") {
+      Eigen::Vector3d projected_gravity = real_state_.base_quat().conjugate() * Eigen::Vector3d(0.0f, 0.0f, -1.0f);
+      v[0] = projected_gravity[0];
+      v[1] = projected_gravity[1];
+      v[2] = projected_gravity[2];
+    }
+    else if (t.name == "velocity_commands") {
+      v = {gamepad_.ly, -gamepad_.lx, -gamepad_.rx};
+      commands_["base_velocity"].process(v);
+    }
+    else if (t.name == "joint_pos") {
+      for (size_t i = 0; i < robot_model_.nJoints(); ++i) v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].q;
+    }
+    else if (t.name == "joint_vel") {
+      for (size_t i = 0; i < robot_model_.nJoints(); ++i) v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].dq;
+    }
+    else if (t.name == "last_action") {
+      v = last_action_; // prev action
     }
 
-    const auto& ranges = cfg_.commands.base_velocity;
+    if (t.proc) t.proc->process(v);
 
-    const double vx = std::clamp(static_cast<double>(gamepad_.ly),
-                                 ranges.lin_vel_x[0], ranges.lin_vel_x[1]);
-    const double vy = std::clamp(static_cast<double>(-gamepad_.lx),
-                                 ranges.lin_vel_y[0], ranges.lin_vel_y[1]);
-    const double wz = std::clamp(static_cast<double>(-gamepad_.rx),
-                                 ranges.ang_vel_z[0], ranges.ang_vel_z[1]);
-    return std::vector<double>{vx, vy, wz};
-  });
-
-  obs_registry_.Register("joint_pos_rel", [this](const ObsTerm&) {
-    const auto q = real_state_.joint_pos();
-    if (q.size() != static_cast<int>(cfg_.default_joint_pos.size())) {
-      throw std::runtime_error("joint_pos_rel: joint_pos size mismatch with default_joint_pos.");
-    }
-    std::vector<double> out(static_cast<size_t>(q.size()));
-    for (int i = 0; i < q.size(); ++i) {
-      out[static_cast<size_t>(i)] =
-          q[cfg_.joint_ids_map[i]] - cfg_.default_joint_pos[static_cast<size_t>(i)];
-    }
-    return out;
-  });
-
-  obs_registry_.Register("joint_pos", [this](const ObsTerm&) {
-    const auto q = real_state_.joint_pos();
-    if (q.size() != static_cast<int>(cfg_.default_joint_pos.size())) {
-      throw std::runtime_error("joint_pos: joint_pos size mismatch with default_joint_pos.");
-    }
-    std::vector<double> out(static_cast<size_t>(q.size()));
-    for (int i = 0; i < q.size(); ++i) {
-      out[static_cast<size_t>(i)] =
-          q[cfg_.joint_ids_map[i]];
-    }
-    return out;
-  });
-
-  obs_registry_.Register("joint_vel_rel", [this](const ObsTerm&) {
-    const auto dq = real_state_.joint_vel();
-    if (dq.size() != static_cast<int>(cfg_.default_joint_pos.size())) {
-      throw std::runtime_error("joint_vel_rel: joint_vel size mismatch with default_joint_pos.");
-    }
-    std::vector<double> out(static_cast<size_t>(dq.size()));
-    for (int i = 0; i < dq.size(); ++i) {
-      out[static_cast<size_t>(i)] =
-          dq[cfg_.joint_ids_map[i]];
-    }
-    return out;
-  });
+    std::copy(v.begin(), v.end(), obs_buf_.begin() + t.offset);
+  }
 }
 
 void LeggedRLDeploy::updateHighController() {
-  // 1) Fill obs terms via registry (order by YAML)
-  obs_registry_.Fill(cfg_.observations, *obs_asm_, last_action_);
+  std::fill(obs_buf_.begin(), obs_buf_.end(), 0.0f);
 
-  // 2) Assemble flat obs
-  obs_buf_ = obs_asm_->Assemble(/*require_all_terms=*/true);
+  // -------- observation assemble --------
+  assembleObs();
 
-  // 3) Policy inference: obs -> act
+  // -------- policy infer --------
   policy_runner_->infer(obs_buf_.data(), act_buf_.data());
 
-  // 4) 保存 last_action（供下一 tick obs）
+  // -------- update last_action (prev) --------
   last_action_ = act_buf_;
 
-  // 5) Action post-process: policy action -> joint target (robot order)
-  // （建议用 default_joint_pos_f_ 填充未控制关节）
-  std::vector<float> q_des_robot =
-      act_proc_->ComputeJointTargetsRobotOrder(act_buf_, default_joint_pos_f_);
+  // -------- action process --------
+  actions_["JointPositionAction"].process(act_buf_);
 
-  // 6) 写 lowcmd（位置控制 + PD）
-  for (size_t j_robot = 0; j_robot < kp_robot_.size(); ++j_robot) {
-    lowcmd_msg_.motor_cmd[j_robot].q = q_des_robot[j_robot];
-    lowcmd_msg_.motor_cmd[j_robot].kp = kp_robot_[j_robot];
-    lowcmd_msg_.motor_cmd[j_robot].kd = kd_robot_[j_robot];
-    lowcmd_msg_.motor_cmd[j_robot].dq = 0.0;
-    lowcmd_msg_.motor_cmd[j_robot].tau = 0.0;
+  // -------- send lowcmd --------
+  for (size_t i = 0; i < act_dim_; ++i) {
+    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].q  = act_buf_[i];
+    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].kp = stiffness_[i];
+    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].kd = damping_[i];
+    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].dq = 0.0;
+    lowcmd_msg_.motor_cmd[joint_ids_map_[i]].tau = 0.0;
   }
 }
 

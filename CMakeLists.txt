@@ -35,7 +35,6 @@ find_package(Torch REQUIRED)
 add_library(${PROJECT_NAME} STATIC
     src/policy/torch_policy_runner.cpp
     src/policy/policy_factory.cpp
-    src/observation_assembler.cpp
     src/legged_rl_deploy.cpp
 )
 
