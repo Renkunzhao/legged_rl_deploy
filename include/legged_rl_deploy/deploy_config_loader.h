@@ -202,6 +202,23 @@ inline ActionsConfig LoadActionsConfig(const YAML::Node& actions,
   return cfg;
 }
 
+inline std::vector<ObsPreprocessOp> LoadPreprocessOrder(const YAML::Node& n,
+                                                        const std::string& path) {
+  // allow missing -> default
+  if (!n.IsDefined() || n.IsNull()) {
+    return {ObsPreprocessOp::clip, ObsPreprocessOp::scale};
+  }
+  Require(n.IsSequence(), "Expected sequence at '" + path + "'.");
+  std::vector<ObsPreprocessOp> out;
+  out.reserve(n.size());
+  for (size_t i = 0; i < n.size(); ++i) {
+    const std::string op = AsScalar<std::string>(n[i], path + "[" + std::to_string(i) + "]");
+    out.push_back(ParseObsPreprocessOp(op));
+  }
+  return out;
+}
+
+
 inline ObsTerm LoadObsTerm(const YAML::Node& term, const std::string& path) {
   Require(term.IsDefined() && !term.IsNull() && term.IsMap(),
           "Expected map at '" + path + "'.");
@@ -225,21 +242,58 @@ inline ObservationsConfig LoadObservationsConfig(const YAML::Node& obs, const st
   if (!obs.IsDefined() || obs.IsNull()) return cfg;
   Require(obs.IsMap(), "Expected map at '" + path + "'.");
 
-  cfg.terms.clear();
-  cfg.terms.reserve(obs.size());
+  // -------- meta fields (optional) --------
+  // stack_method: ConcatThenStack | StackThenConcat
+  if (obs["stack_method"].IsDefined() && !obs["stack_method"].IsNull()) {
+    const std::string s = AsScalar<std::string>(obs["stack_method"], JoinPath(path, "stack_method"));
+    cfg.stack_method = ParseObsStackMethod(s);
+  }
 
-  // duplicate check
+  // stack_order: newest_first | oldest_first
+  if (obs["stack_order"].IsDefined() && !obs["stack_order"].IsNull()) {
+    const std::string s = AsScalar<std::string>(obs["stack_order"], JoinPath(path, "stack_order"));
+    cfg.stack_order = ParseObsStackOrder(s);
+  }
+
+  // preprocess_order: [clip, scale] or [scale, clip]
+  cfg.preprocess_order = LoadPreprocessOrder(obs["preprocess_order"], JoinPath(path, "preprocess_order"));
+
+  // -------- terms loading --------
+  // New format: observations: { stack_method, stack_order, preprocess_order, terms: {...} }
+  // Backward-compatible old format: observations: { base_ang_vel: {...}, ... } (no terms key)
+  YAML::Node terms_node = obs["terms"];
+  const bool has_terms = terms_node.IsDefined() && !terms_node.IsNull();
+
+  const YAML::Node& terms_map = has_terms ? terms_node : obs;
+
+  Require(terms_map.IsMap(), "Expected map at '" + JoinPath(path, has_terms ? "terms" : "<observations>") + "'.");
+
+  cfg.terms.clear();
+  cfg.terms.reserve(terms_map.size());
+
   std::unordered_map<std::string, int> seen;
 
-  for (auto it = obs.begin(); it != obs.end(); ++it) {
-    Require(it->first.IsScalar(), "Observation term name must be scalar at '" + path + "'.");
+  for (auto it = terms_map.begin(); it != terms_map.end(); ++it) {
+    Require(it->first.IsScalar(),
+            "Observation term name must be scalar at '" +
+                JoinPath(path, has_terms ? "terms" : "<observations>") + "'.");
+
     const std::string name = it->first.as<std::string>();
 
-    if (++seen[name] > 1) {
-      throw YamlLoadError("Duplicate observation term name '" + name + "' at '" + path + "'.");
+    // If old format, skip meta keys if user accidentally mixes formats
+    if (!has_terms) {
+      if (name == "stack_method" || name == "stack_order" || name == "preprocess_order" || name == "terms") {
+        continue;
+      }
     }
 
-    ObsTerm term = LoadObsTerm(it->second, path + "." + name);
+    if (++seen[name] > 1) {
+      throw YamlLoadError("Duplicate observation term name '" + name + "' at '" +
+                          JoinPath(path, has_terms ? "terms" : "<observations>") + "'.");
+    }
+
+    const std::string term_path = has_terms ? JoinPath(JoinPath(path, "terms"), name) : JoinPath(path, name);
+    ObsTerm term = LoadObsTerm(it->second, term_path);
     cfg.terms.emplace_back(name, std::move(term));
   }
 

@@ -3,6 +3,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <stdexcept>
 
 namespace legged_rl_deploy {
 
@@ -43,16 +44,55 @@ struct ActionsConfig {
   std::optional<JointPositionActionConfig> joint_position;
 };
 
+// ---------- Observations enums ----------
+enum class ObsStackMethod {
+  ConcatThenStack,
+  StackThenConcat,
+};
+
+enum class ObsStackOrder {
+  newest_first,
+  oldest_first,
+};
+
+enum class ObsPreprocessOp {
+  clip,
+  scale,
+};
+
+inline ObsStackMethod ParseObsStackMethod(const std::string& s) {
+  if (s == "ConcatThenStack") return ObsStackMethod::ConcatThenStack;
+  if (s == "StackThenConcat") return ObsStackMethod::StackThenConcat;
+  throw std::runtime_error("Unknown stack_method: " + s);
+}
+
+inline ObsStackOrder ParseObsStackOrder(const std::string& s) {
+  if (s == "newest_first") return ObsStackOrder::newest_first;
+  if (s == "oldest_first") return ObsStackOrder::oldest_first;
+  throw std::runtime_error("Unknown stack_order: " + s);
+}
+
+inline ObsPreprocessOp ParseObsPreprocessOp(const std::string& s) {
+  if (s == "clip") return ObsPreprocessOp::clip;
+  if (s == "scale") return ObsPreprocessOp::scale;
+  throw std::runtime_error("Unknown preprocess op: " + s);
+}
+
 // ---------- Observations ----------
 struct ObsTerm {
-  ParamMap params;               // YAML 的 params: {}
-  std::vector<double> clip;      // size 2 (low, high)
-  std::vector<double> scale;     // 维度取决于 obs term
+  ParamMap params;               // YAML params: {}
+  std::vector<double> clip;      // size 2
+  std::vector<double> scale;     // dim depends on term
   int history_length = 1;
 };
 
-// 观测项以 name 为 key：base_ang_vel / projected_gravity / ...
 struct ObservationsConfig {
+  // ✅ NEW: from YAML
+  ObsStackMethod stack_method = ObsStackMethod::ConcatThenStack; // default
+  ObsStackOrder stack_order   = ObsStackOrder::newest_first;     // default
+  std::vector<ObsPreprocessOp> preprocess_order = {ObsPreprocessOp::clip, ObsPreprocessOp::scale};
+
+  // terms: base_ang_vel / projected_gravity / ...
   std::vector<std::pair<std::string, ObsTerm>> terms;
 };
 
