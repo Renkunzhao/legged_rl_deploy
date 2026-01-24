@@ -15,6 +15,10 @@ LeggedRLDeploy::LeggedRLDeploy(std::string configFile) {
 }
 
 void LeggedRLDeploy::initHighController() {
+  if (configNode_["ll_dt"]) {
+    ll_dt_ = configNode_["ll_dt"].as<double>();
+  }
+
   const auto& pnode = configNode_["policy"];
   const std::string backend    = pnode["backend"].as<std::string>("torch");
   const std::string model_path = pnode["model_path"].as<std::string>();
@@ -211,6 +215,11 @@ void LeggedRLDeploy::stackObsGlobal() {
 }
 
 void LeggedRLDeploy::updateHighController() {
+  const int decim = std::max(1, (int)std::lround(policy_dt_ / ll_dt_));
+  if ((loop_cnt_ % decim) != 0) {
+    return;
+  }
+
   // 1) build current frame
   assembleObsFrame();
 
