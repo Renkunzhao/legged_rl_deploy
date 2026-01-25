@@ -1,0 +1,94 @@
+# lowlevel controller
+llc_config_file: /root/code/go2_ws/src/unitree_lowlevel/config/go2.yaml
+
+# Mujoco deploy.py: model.opt.timestep = 0.005, decimation=4 -> policy_dt=0.02
+ll_dt: 0.005
+
+policy:
+  backend: libtorch
+  model_path: /root/code/go2_ws/src/legged_rl_deploy/policies/go2_jump.pt
+  input_dim: 470          # 47 * 10
+  output_dim: 12
+  policy_dt: 0.02
+
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]  
+  stiffness: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+  damping:   [0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5]
+
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -100.0
+      max: 100.0
+      scale: 0.25
+      offset:
+        [0.1,0.8,-1.5, -0.1,0.8,-1.5, 0.1,1.0,-1.5, -0.1,1.0,-1.5]
+
+  commands:
+    base_velocity:
+      process_order: [clip]
+      min: [-1.5, -1.0, -3.0]
+      max: [ 1.5,  1.0,  3.0]
+
+  observations:
+    stack:
+      length: 10
+      order: oldest_first   # ✅ deploy.py: hist_obs append -> popleft, 然后按 i=0..9 拼接，i=0是最老
+
+    # 单帧 47维：严格对齐 deploy.py 的索引
+    # obs[0] = sin(2pi * t / cycle_time)
+    # obs[1] = cos(2pi * t / cycle_time)
+    # obs[2] = x_vel_cmd * lin_vel_scale (2.0)
+    # obs[3] = y_vel_cmd * lin_vel_scale (2.0)
+    # obs[4] = yaw_vel_cmd * ang_vel_scale (0.25)
+    # obs[5:8]  = omega * 0.25
+    # obs[8:11] = euler(rpy) * quat_scale (1.0)  # 注意这里其实是欧拉角，不是quat
+    # obs[11:23] = (q - default_dof_pos) * dof_pos_scale (1.0)
+    # obs[23:35] = dq * dof_vel_scale (0.05)
+    # obs[35:47] = last_action (上一帧 policy action, 未乘action_scale、未加offset)
+    terms:
+      gait_phase_2:
+        params:
+          cycle_time: 1.5  
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+
+      velocity_commands:
+        process_order: [scale, clip]
+        scale: [2.0, 2.0, 0.25]   # lin_vel=2.0, ang_vel=0.25
+        min: -100.0
+        max: 100.0
+
+      base_ang_vel_B:
+        process_order: [scale, clip]
+        scale: [0.25, 0.25, 0.25]
+        min: -100.0
+        max: 100.0
+
+      eulerZYX_rpy:
+        process_order: [scale, clip]
+        scale: [1.0, 1.0, 1.0]    # cfg.normalization.obs_scales.quat = 1.0 (但其实是欧拉角的scale)
+        min: -100.0
+        max: 100.0
+
+      joint_pos:
+        process_order: [offset, scale, clip]
+        offset:
+          # -default_dof_pos
+          [-0.1,-0.8,1.5, 0.1,-0.8,1.5, -0.1,-1.0,1.5, 0.1,-1.0,1.5]
+        scale: 1.0
+        min: -100.0
+        max: 100.0
+
+      joint_vel:
+        process_order: [scale, clip]
+        scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+        min: -100.0
+        max: 100.0
+
+      last_action:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+

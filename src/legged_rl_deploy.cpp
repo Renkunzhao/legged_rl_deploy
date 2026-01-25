@@ -83,11 +83,16 @@ void LeggedRLDeploy::registryObsTerms(YAML::Node node) {
   for (auto it = node.begin(); it != node.end(); ++it) {
     ObsTerm t;
     t.name = it->first.as<std::string>();
-    t.dim = DimOfObsTerm(t.name);
+    YAML::Node term_node = it->second;
+    t.params = term_node["params"];
+
+    // -------- dim inference --------
+    calculateObsTerm(t);
+
     t.offset = off;
     off += t.dim;
 
-    auto maybe = Processor::TryLoad(it->second);
+    auto maybe = Processor::TryLoad(term_node);
     if (maybe) t.proc = std::move(*maybe);
 
     obs_terms_.push_back(std::move(t));
@@ -113,9 +118,39 @@ void LeggedRLDeploy::assembleObsFrame() {
 
   for (const auto& t : obs_terms_) {
     std::vector<float> v(t.dim, 0.0f);
-
-    if (t.name == "gait_phase_2") {
-      const float phase = loop_cnt_ * ll_dt_ / 0.5;
+    if (t.name == "constants") {
+      v = t.params["vec"].as<std::vector<float>>();
+    } else if (t.name == "joystick_buttons") {
+      const auto keys = t.params["keys"].as<std::vector<std::string>>();
+      for (size_t i = 0; i < keys.size(); ++i) {
+        unitree::common::Button btn;
+        if (keys[i] == "A") btn = gamepad_.A;
+        else if (keys[i] == "B") btn = gamepad_.B;
+        else if (keys[i] == "X") btn = gamepad_.X;
+        else if (keys[i] == "Y") btn = gamepad_.Y;
+        else if (keys[i] == "up") btn = gamepad_.up;
+        else if (keys[i] == "down") btn = gamepad_.down;
+        else if (keys[i] == "left") btn = gamepad_.left;
+        else if (keys[i] == "right") btn = gamepad_.right;
+        else if (keys[i] == "L1") btn = gamepad_.L1;
+        else if (keys[i] == "L2") btn = gamepad_.L2;
+        else if (keys[i] == "R1") btn = gamepad_.R1;
+        else if (keys[i] == "R2") btn = gamepad_.R2;
+        else if (keys[i] == "start") btn = gamepad_.start;
+        else if (keys[i] == "select") btn = gamepad_.select;
+        else {
+          throw std::runtime_error("[LeggedRLDeploy] Unknown joystick button: " + keys[i]);
+        }
+        v[i] = btn.pressed ? 1.0f : 0.0f;
+      }
+      // std::cout << "[LeggedRLDeploy] joystick_buttons : ";
+      // for (size_t i = 0; i < t.dim; ++i) {
+      //   std::cout << v[i] << " ";
+      // }
+      // std::cout << std::endl;
+    } else if (t.name == "gait_phase_2") {
+      float cycle_time = t.params["cycle_time"].as<float>();
+      const float phase = loop_cnt_ * ll_dt_ / cycle_time;
       v[0] = sinf(2.0f * M_PI * phase);
       v[1] = cosf(2.0f * M_PI * phase);
     } else if (t.name == "base_ang_vel_W") {

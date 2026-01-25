@@ -1,0 +1,74 @@
+# lowlevel controller
+llc_config_file: /root/code/go2_ws/src/unitree_lowlevel/config/go2.yaml
+
+ll_dt: 0.005
+
+policy:
+  backend: libtorch
+  model_path: /root/code/go2_ws/src/legged_rl_deploy/policies/go2_spring_jump.pt
+  input_dim: 470          # 47 * 10
+  output_dim: 12
+  policy_dt: 0.02
+
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  stiffness: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+  damping:   [0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5]
+
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -100.0
+      max: 100.0
+      scale: 0.25
+      offset: [0.0, 0.8, -1.5, -0.0, 0.8, -1.5, 0.0, 1.0, -1.5, -0.0, 1.0, -1.5]
+
+  commands: {}
+
+  observations:
+    stack:
+      length: 10
+      order: oldest_first
+
+    terms:
+      constants:
+        params:
+          vec: [0.0, 0.0, 0.7, 0.0]  # obs[0]=0, obs[1]=0, obs[2]=0.7, obs[3]=0
+
+      joystick_buttons:
+        params:
+          keys: [A] # B, X, Y, LB, RB, LT, RT, BACK, START
+
+      # python: obs[5:8] = omega * cfg.normalization.obs_scales.ang_vel  (0.25)
+      base_ang_vel_B:
+        process_order: [scale, clip]
+        scale: [0.25, 0.25, 0.25]
+        min: -100.0
+        max: 100.0
+
+      # python: obs[8:11] = euler(rpy) * cfg.normalization.obs_scales.quat (1.0)
+      eulerZYX_rpy:
+        process_order: [scale, clip]
+        scale: [1.0, 1.0, 1.0]
+        min: -100.0
+        max: 100.0
+
+      # python: obs[11:23] = (q - default_dof_pos) * dof_pos_scale(1.0)
+      joint_pos:
+        process_order: [offset, scale, clip]
+        offset: [-0.0, -0.8, 1.5, 0.0, -0.8, 1.5, -0.0, -1.0, 1.5, 0.0, -1.0, 1.5]
+        scale: 1.0
+        min: -100.0
+        max: 100.0
+
+      # python: obs[23:35] = dq * dof_vel_scale(0.05)
+      joint_vel:
+        process_order: [scale, clip]
+        scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+        min: -100.0
+        max: 100.0
+
+      # python: obs[35:47] = last raw action (policy输出, clip后, 未*0.25 未+offset)
+      last_action:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0

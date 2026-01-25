@@ -45,6 +45,7 @@ private:
     size_t dim = 0;
     size_t offset = 0;
     std::optional<Processor> proc;   // term 自己的 process
+    YAML::Node params; 
   };
   std::vector<ObsTerm> obs_terms_;
 
@@ -54,17 +55,30 @@ private:
   std::vector<float> obs_now_;                 // 单帧 obs（obs_dim_）
   std::deque<std::vector<float>> obs_hist_;      // 历史帧
 
-  size_t DimOfObsTerm(const std::string& name) {
-    if (name == "gait_phase_2") return 2;
-    if (name == "base_ang_vel_W") return 3;
-    if (name == "base_ang_vel_B") return 3;
-    if (name == "projected_gravity") return 3;
-    if (name == "eulerZYX_rpy") return 3;  // eulerZYX in rpy order
-    if (name == "velocity_commands") return 3;
-    if (name == "joint_pos") return robot_model_.nJoints();
-    if (name == "joint_vel") return robot_model_.nJoints();
-    if (name == "last_action") return output_dim_;
-    throw std::runtime_error("Unknown obs term name: " + name);
+  void calculateObsTerm(ObsTerm& term) {
+    if (term.name == "constants") {
+      if (!term.params || !term.params["vec"]) {
+        throw std::runtime_error(
+          "[LeggedRLDeploy] " + term.name + " requires params.vec");
+      }
+      term.dim = term.params["vec"].as<std::vector<float>>().size();
+    }
+    if (term.name == "joystick_buttons") {
+      if (!term.params || !term.params["keys"]) {
+        throw std::runtime_error(
+          "[LeggedRLDeploy] " + term.name + " requires params.keys");
+      }
+      term.dim = term.params["keys"].as<std::vector<std::string>>().size();
+    }
+    if (term.name == "gait_phase_2") term.dim = 2;
+    if (term.name == "base_ang_vel_W") term.dim = 3;
+    if (term.name == "base_ang_vel_B") term.dim = 3;
+    if (term.name == "projected_gravity") term.dim = 3;
+    if (term.name == "eulerZYX_rpy") term.dim = 3;  // eulerZYX in rpy order
+    if (term.name == "velocity_commands") term.dim = 3;
+    if (term.name == "joint_pos") term.dim = robot_model_.nJoints();
+    if (term.name == "joint_vel") term.dim = robot_model_.nJoints();
+    if (term.name == "last_action") term.dim = output_dim_;
   }
 };
 
