@@ -1,0 +1,87 @@
+# lowlevel controller
+llc_config_file: /root/code/go2_ws/src/unitree_lowlevel/config/go2.yaml
+
+# Mujoco deploy.py: dt=0.005, decimation=4 -> policy_dt=0.02
+ll_dt: 0.005
+
+tau_max:
+  [33.5, 33.5, 33.5, 
+  33.5, 33.5, 33.5,  
+  33.5, 33.5, 33.5,  
+  33.5, 33.5, 33.5]
+
+policy:
+  backend: libtorch
+  model_path: /root/code/go2_ws/src/legged_rl_deploy/policies/go2_legstand.pt
+  input_dim: 48          # ✅ handstand: frame_stack=1, num_single_obs=48
+  output_dim: 12
+  policy_dt: 0.02
+
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  stiffness: [40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0]  # ✅ python kps=40
+  damping:   [1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0]   # ✅ python kds=1.0
+
+  # action: target_q = action * 0.25 ; PD里再加 default_dof_pos
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -100.0
+      max: 100.0
+      scale: 0.25
+      offset: [0.1, 0.8, -1.5, -0.1, 0.8, -1.5, 0.1, 1.0, -1.5, -0.1, 1.0, -1.5]  # ✅ default_dof_pos
+
+  commands:     
+    base_velocity:
+
+  observations:
+    stack:
+      length: 1            # ✅ handstand: frame_stack=1
+      order: oldest_first  # 无所谓，len=1
+
+    # 48维单帧：严格按 python deploy index 排列
+    terms:
+      # obs[0:3] = [0,0,0]
+      constants:
+        params:
+          vec: [0.0, 0.0, 0.0]
+
+      # obs[3:6] = omega * 0.25
+      base_ang_vel_B:
+        process_order: [scale, clip]
+        scale: [0.25, 0.25, 0.25]     # cfg.normalization.obs_scales.ang_vel
+        min: -100.0
+        max: 100.0
+
+      # obs[6:9] = gvec  (python: 直接 gvec，不乘 scale、不 clip)
+      projected_gravity:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+
+      # obs[9:12] = [x_vel_cmd*2, y_vel_cmd*2, yaw_vel_cmd*0.25]
+      velocity_commands:
+        process_order: [scale, clip]
+        scale: [2.0, 2.0, 0.25]   # lin_vel=2.0, ang_vel=0.25
+        min: -100.0
+        max: 100.0
+
+      # obs[12:24] = (q-default)*1.0
+      joint_pos:
+        process_order: [offset, scale, clip]
+        offset: [-0.1, -0.8, 1.5, 0.1, -0.8, 1.5, -0.1, -1.0, 1.5, 0.1, -1.0, 1.5]  # = -default_dof_pos
+        scale: 1.0
+        min: -100.0
+        max: 100.0
+
+      # obs[24:36] = dq*0.05
+      joint_vel:
+        process_order: [scale, clip]
+        scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+        min: -100.0
+        max: 100.0
+
+      # obs[36:48] = last raw action (policy输出, clip后, 未*0.25 未+offset)
+      last_action:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0

@@ -27,9 +27,6 @@ policy:
   # deploy.py 里 x_vel_cmd/y_vel_cmd/yaw_vel_cmd 没有 clamp，但通常建议 clamp 到 ranges
   commands:
     base_velocity:
-      process_order: [clip]
-      min: [-1.5, -1.0, -3.0]
-      max: [ 1.5,  1.0,  3.0]
 
   observations:
     stack:

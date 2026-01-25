@@ -26,9 +26,6 @@ policy:
 
   commands:
     base_velocity:
-      process_order: [clip]
-      min: [-1.5, -1.0, -3.0]
-      max: [ 1.5,  1.0,  3.0]
 
   observations:
     stack:
