@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "legged_rl_deploy/policy/policy_factory.h"
+#include <legged_model/Utils.h>
 
 namespace legged_rl_deploy {
 
@@ -17,6 +18,10 @@ LeggedRLDeploy::LeggedRLDeploy(std::string configFile) {
 void LeggedRLDeploy::initHighController() {
   if (configNode_["ll_dt"]) {
     ll_dt_ = configNode_["ll_dt"].as<double>();
+  }
+
+  if (configNode_["tau_max"]) {
+    robot_model_.setTauMax(LeggedAI::yamlToEigenVector(configNode_["tau_max"]));
   }
 
   const auto& pnode = configNode_["policy"];
