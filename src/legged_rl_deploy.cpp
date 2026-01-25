@@ -20,6 +20,10 @@ void LeggedRLDeploy::initHighController() {
     ll_dt_ = configNode_["ll_dt"].as<double>();
   }
 
+  if (configNode_["clip_final_tau"]) {
+    clip_final_tau_ = configNode_["clip_final_tau"].as<bool>();
+  }
+
   if (configNode_["tau_max"]) {
     robot_model_.setTauMax(LeggedAI::yamlToEigenVector(configNode_["tau_max"]));
   }
@@ -254,12 +258,7 @@ void LeggedRLDeploy::stackObsGlobal() {
   }
 }
 
-void LeggedRLDeploy::updateHighController() {
-  const int decim = std::max(1, (int)std::lround(policy_dt_ / ll_dt_));
-  if ((loop_cnt_ % decim) != 0) {
-    return;
-  }
-
+void LeggedRLDeploy::updatePolicy() {
   // 1) build current frame
   assembleObsFrame();
 
@@ -279,15 +278,37 @@ void LeggedRLDeploy::updateHighController() {
   // 5) action postprocess
   auto it = actions_.find("JointPositionAction");
   if (it != actions_.end()) it->second.process(output_buf_);
+}
+
+void LeggedRLDeploy::updateHighController() {
+  const int decim = std::max(1, (int)std::lround(policy_dt_ / ll_dt_));
+  if ((loop_cnt_ % decim) == 0) {
+    updatePolicy();
+  }
 
   // 6) send lowcmd (remember dq/tau!)
   for (size_t i = 0; i < output_dim_; ++i) {
     const size_t j = joint_ids_map_[i];
-    lowcmd_msg_.motor_cmd[j].q   = output_buf_[i];
-    lowcmd_msg_.motor_cmd[j].kp  = stiffness_[i];
-    lowcmd_msg_.motor_cmd[j].kd  = damping_[i];
-    lowcmd_msg_.motor_cmd[j].dq  = 0.0f;
-    lowcmd_msg_.motor_cmd[j].tau = 0.0f;
+
+    if (clip_final_tau_) {
+      // The only  difference is whether sim/real robot will get a clipped final torque or a PD target with a clipped feedforward torque.
+      // Note: if using the latter way and robot has very high kp/kd and higher frequency than low-level controller, the final torque may still exceed the limit since the clipping happens before PD.
+      // High-level (target joint pos) -> Low-level (PD -> clip on final tau) -> sim/real robot (tau)
+      auto& cmd = lowcmd_msg_.motor_cmd[j];
+      auto& state = lowstate_msg_.motor_state[j];
+      cmd.tau = stiffness_[i] * (output_buf_[i] - state.q) + damping_[i] * (0.0f - state.dq);
+      cmd.q = 0.0f;
+      cmd.dq = 0.0f;
+      cmd.kp = 0.0f;
+      cmd.kd = 0.0f;
+    } else {
+      // High-level (target joint pos) -> Low-level (clip on feedforward tau) -> sim/real robot (PD)
+      lowcmd_msg_.motor_cmd[j].q   = output_buf_[i];
+      lowcmd_msg_.motor_cmd[j].kp  = stiffness_[i];
+      lowcmd_msg_.motor_cmd[j].kd  = damping_[i];
+      lowcmd_msg_.motor_cmd[j].dq  = 0.0f;
+      lowcmd_msg_.motor_cmd[j].tau = 0.0f;
+    }
   }
 }
 

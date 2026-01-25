@@ -2,6 +2,8 @@
 llc_config_file:
   /root/code/go2_ws/src/unitree_lowlevel/config/go2.yaml
 
+clip_final_tau: false
+
 # TorchScript policy for C++ inference
 policy:
   backend: libtorch

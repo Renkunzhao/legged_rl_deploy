@@ -27,6 +27,7 @@ private:
   void registryObsTerms(YAML::Node node);
   void assembleObsFrame();
   void stackObsGlobal();
+  void updatePolicy();
 
   YAML::Node configNode_;
   
@@ -34,6 +35,7 @@ private:
   size_t input_dim_, output_dim_;
   std::vector<float> input_buf_, output_buf_;
 
+  bool clip_final_tau_ = true;
   float policy_dt_ = 0.02f;
   std::vector<size_t> joint_ids_map_;
   std::vector<float> stiffness_, damping_, last_action_;
