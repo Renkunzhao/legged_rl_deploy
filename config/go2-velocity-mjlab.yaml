@@ -5,6 +5,7 @@ llc_config_file:
 ll_dt: 0.005  # override in unitree_lowlevel
 clip_final_tau: false
 
+# mjlab commit: 468f283d4868019c012980ac5c9daf773103622e
 # TorchScript policy for C++ inference
 policy:
   backend: libtorch
