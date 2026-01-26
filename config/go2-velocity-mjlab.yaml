@@ -1,0 +1,79 @@
+# lowlevel controller
+llc_config_file:
+  /root/code/go2_ws/src/unitree_lowlevel/config/go2.yaml
+
+ll_dt: 0.005  # override in unitree_lowlevel
+clip_final_tau: false
+
+# TorchScript policy for C++ inference
+policy:
+  backend: libtorch
+  model_path: /root/code/go2_ws/src/legged_rl_deploy/policies/go2_velocity_mjlab.pt
+  input_dim: 45
+  output_dim: 12
+  # src/mjlab/tasks/velocity/velocity_env_cfg.py ManagerBasedRlEnvCfg
+  policy_dt: 0.02
+  # INIT_STATE in go2_constraints.py
+  # Map policy joint order (FL, FR, RL, RR) to lowlevel motor order (FR, FL, RR, RL)
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  # GO2_ARTICULATION in go2_constraints.py
+  stiffness: [
+    17.6918024541168, 17.6918024541168, 65.21906056685614, 
+    17.6918024541168, 17.6918024541168, 65.21906056685614, 
+    17.6918024541168, 17.6918024541168, 65.21906056685614, 
+    17.6918024541168, 17.6918024541168, 65.21906056685614
+  ]
+  damping: [
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185, 
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185, 
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185, 
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185
+  ]
+  commands: 
+    base_velocity:
+      process_order: [scale, clip]
+      scale: 0.95
+      min: [-1.0, -1.0, -0.5]
+      max: [1.0, 1.0, 0.5]
+  actions:
+    # src/mjlab/rl/vecenv_wrapper.py step: clip
+    # src/mjlab/envs/mdp/actions/actions.py process_actions: scale, offset
+    JointPositionAction:
+      process_order: [scale, offset]
+      scale: [
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184,
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184,
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184,
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184
+      ]
+      offset: [
+        -0.1, 0.9, -1.8,  
+         0.1, 0.9, -1.8,  
+        -0.1, 0.9, -1.8,  
+         0.1, 0.9, -1.8   
+      ]
+  observations:
+    stack:
+      length: 1
+      order: oldest_first
+    terms:
+      # observation_manager.py compute_group: 
+      # all term are in [clip, scale] order
+      # no general offset, but some terms have custom offset below
+      base_ang_vel_B:
+      projected_gravity:
+      joint_pos:
+        process_order: [offset]
+        # Subtract default joint positions to get relative positions (mjlab joint_pos_rel)
+        # Defaults: FL(-0.1, 0.9, -1.8), FR(0.1, 0.9, -1.8), RL(-0.1, 0.9, -1.8), RR(0.1, 0.9, -1.8)
+        offset: [
+          0.1, -0.9, 1.8,
+         -0.1, -0.9, 1.8,
+          0.1, -0.9, 1.8,
+         -0.1, -0.9, 1.8
+        ]
+      joint_vel:
+      last_action:
+        # process_order: [clip]
+      velocity_commands:
+
