@@ -25,7 +25,7 @@ void LeggedRLDeploy::initHighController() {
   }
 
   if (configNode_["tau_max"]) {
-    robot_model_.setTauMax(LeggedAI::yamlToEigenVector(configNode_["tau_max"]));
+    robot_model_.setTauMaxOrder(LeggedAI::yamlToEigenVector(configNode_["tau_max"]));
   }
 
   const auto& pnode = configNode_["policy"];
