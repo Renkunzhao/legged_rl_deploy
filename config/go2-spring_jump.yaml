@@ -1,5 +1,5 @@
 # lowlevel controller
-llc_config_file: /root/code/go2_ws/src/unitree_lowlevel/config/go2.yaml
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
 
 ll_dt: 0.005
 
@@ -11,7 +11,7 @@ tau_max:
 
 policy:
   backend: libtorch
-  model_path: /root/code/go2_ws/src/legged_rl_deploy/policies/go2_spring_jump.pt
+  model_path: src/legged_rl_deploy/policies/go2_spring_jump.pt
   input_dim: 470          # 47 * 10
   output_dim: 12
   policy_dt: 0.02

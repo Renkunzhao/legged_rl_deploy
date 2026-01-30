@@ -22,11 +22,11 @@ int main(int argc, char* argv[]) {
   std::cout << "[go2_test] Load config from " << configFile << std::endl;
 
   YAML::Node configNode = YAML::LoadFile(configFile);
-  auto llc_config_file = configNode["llc_config_file"].as<std::string>();
+  auto llc_config_file = LeggedAI::getEnv("WORKSPACE") + "/" + configNode["llc_config_file"].as<std::string>();
   auto llc_config_node = YAML::LoadFile(llc_config_file);
 
   std::string log_path;
-  log_path = llc_config_node["log_path"].as<std::string>() + "data.csv";
+  log_path = LeggedAI::getEnv("WORKSPACE") + "/" + llc_config_node["log_path"].as<std::string>() + "data.csv";
 
   CsvLogger& csvLogger = CsvLogger::getInstance();
   csvLogger.setCsvPath(log_path);

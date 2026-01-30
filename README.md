@@ -45,11 +45,8 @@ colcon build --packages-up-to legged_rl_deploy
 ```
 
 ```bash
-source src/unitree_lowlevel/scripts/setup.sh lo foxy
-./src/unitree_mujoco/simulate/build/unitree_mujoco -i 0 -n lo
-
-source src/unitree_lowlevel/scripts/setup.sh lo foxy
-ros2 run legged_rl_deploy legged_rl_deploy_node lo /home/unitree/code/unitree_ws/src/legged_rl_deploy/config/go2-trot.yaml
+source src/unitree_lowlevel/scripts/setup.sh <network-interface> $ROS_DISTRO
+ros2 run legged_rl_deploy legged_rl_deploy_node $NetworkInterface $WORKSPACE/src/legged_rl_deploy/config/go2-trot.yaml
 ```
 
 #### Troubleshooting
