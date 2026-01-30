@@ -44,7 +44,12 @@ source install/setup.bash
 colcon build --packages-up-to legged_rl_deploy 
 ```
 
+### Run
 ```bash
+# Run test and stop the default controller (run once per boot)
+source src/unitree_lowlevel/scripts/setup.sh <network-interface> $ROS_DISTRO
+./build/unitree_sdk2/bin/go2_stand_example $NetworkInterface
+
 source src/unitree_lowlevel/scripts/setup.sh <network-interface> $ROS_DISTRO
 ros2 run legged_rl_deploy legged_rl_deploy_node $NetworkInterface $WORKSPACE/src/legged_rl_deploy/config/go2-trot.yaml
 ```
