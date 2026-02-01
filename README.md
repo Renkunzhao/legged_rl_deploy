@@ -20,7 +20,7 @@ A deployment framework for reinforcement learning (RL) policies on Unitree Go2 a
 
 ## Video Demonstrations
 
-- [Go2 Hop (Bilibili)](https://www.bilibili.com/video/BV1FTzfBcEL6/?vd_source=a178b41776a8e28bb0ca67b41f8f1fe8#reply287915981505)
+- [Go2 Hop (Bilibili)](https://www.bilibili.com/video/BV1Jh6eBhEYz/?share_source=copy_web&vd_source=b99eccd82d555461fbd654f2947e809b)
 
 ## Installation
 
