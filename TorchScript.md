@@ -11,8 +11,8 @@ cd /opt
 wget -nc https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.10.0%2Bcpu.zip
 # wget -nc https://download.pytorch.org/libtorch/cu126/libtorch-shared-with-deps-2.10.0%2Bcu126.zip
 unzip -n libtorch-shared-with-deps-2.10.0+cpu.zip
-echo 'export CMAKE_PREFIX_PATH=/opt/libtorch:$CMAKE_PREFIX_PATH' >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH=/opt/libtorch/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
+export CMAKE_PREFIX_PATH=/opt/libtorch:$CMAKE_PREFIX_PATH
+export LD_LIBRARY_PATH=/opt/libtorch/lib:$LD_LIBRARY_PATH
 ```
 
 **Jetson - [PyTorch](https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform/index.html#install-multiple-versions-pytorch)**
