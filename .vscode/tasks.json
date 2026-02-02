@@ -1,0 +1,51 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "BuildType",
+      "type": "pickString",
+      "description": "Select build type",
+      "options": ["Debug", "Release"],
+      "default": "Release"
+    },
+    {
+      "id": "NetworkInterface",
+      "type": "pickString",
+      "description": "Select network interface",
+      "options": ["lo", "eth0", "enp130s0", "wlp129s0f0"],
+      "default": "lo"
+    },
+    {
+      "id": "policy",
+      "type": "pickString",
+      "description": "Select RL policy",
+      "options": ["velocity-unitree", "velocity-mjlab", "trot", "walk", "jump", "spring_jump", "legstand", "handstand"],
+      "default": "velocity-unitree"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "source ${env:WORKSPACE}/install/setup.sh; colcon build --packages-up-to legged_rl_deploy --cmake-args -DCMAKE_BUILD_TYPE=${input:BuildType}",
+      "group": "build",
+      "options": { "cwd": "${env:WORKSPACE}" },
+      "problemMatcher": []
+    },
+
+    // Controller
+    {
+      "label": "ROS2: Go2 RL",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${env:WORKSPACE}/src/unitree_lowlevel/scripts/ros2_task.sh",
+        "${input:NetworkInterface}",
+        "ros2", "run", "legged_rl_deploy", "legged_rl_deploy_node",
+        "${input:NetworkInterface}",
+        "${env:WORKSPACE}/src/legged_rl_deploy/config/go2-${input:policy}.yaml"
+      ],
+      "problemMatcher": []
+    },
+  ]
+}
