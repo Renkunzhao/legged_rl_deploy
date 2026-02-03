@@ -26,7 +26,7 @@ endif()
 ##############################
 
 find_package(unitree_lowlevel REQUIRED)
-find_package(legged_model REQUIRED)
+find_package(legged_base REQUIRED)
 find_package(Torch REQUIRED)
 
 ##############################
@@ -47,7 +47,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
   unitree_lowlevel::unitree_lowlevel
-  legged_model::legged_model
+  legged_base::legged_base
 )
 
 if (Torch_FOUND)
@@ -141,7 +141,7 @@ if(ament_cmake_FOUND)
 
     # 这两行让 ament 生态下的下游也能拿到 targets/依赖（推荐）
     ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
-    ament_export_dependencies(unitree_lowlevel legged_model)
+    ament_export_dependencies(unitree_lowlevel legged_base)
 
     ament_package()
 endif()

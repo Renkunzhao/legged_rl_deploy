@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "legged_rl_deploy/policy/policy_factory.h"
-#include <legged_model/Utils.h>
+#include <legged_base/Utils.h>
 
 namespace legged_rl_deploy {
 

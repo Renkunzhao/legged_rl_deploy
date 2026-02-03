@@ -9,7 +9,7 @@
 #include "legged_rl_deploy/processor.h"
 
 #include <unitree_lowlevel/lowlevel_controller.h>
-#include <legged_model/LeggedModel.h>
+#include <legged_base/LeggedModel.h>
 
 namespace legged_rl_deploy {
 

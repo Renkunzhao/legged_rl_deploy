@@ -10,7 +10,7 @@
     <buildtool_depend>ament_cmake</buildtool_depend>
 
     <depend>unitree_lowlevel</depend>
-    <depend>legged_model</depend>
+    <depend>legged_base</depend>
     
     <export>
         <build_type>ament_cmake</build_type>
