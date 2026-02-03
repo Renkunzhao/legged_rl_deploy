@@ -218,10 +218,10 @@ void LeggedRLDeploy::assembleObsFrame() {
       if (it != commands_.end()) it->second.process(v);
     } else if (t.name == "joint_pos") {
       for (size_t i = 0; i < robot_model_.nJoints(); ++i)
-        v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].q;
+        v[i] = real_state_.joint_pos()[joint_ids_map_[i]];
     } else if (t.name == "joint_vel") {
       for (size_t i = 0; i < robot_model_.nJoints(); ++i)
-        v[i] = lowstate_msg_.motor_state[joint_ids_map_[i]].dq;
+        v[i] = real_state_.joint_pos()[joint_ids_map_[i]];
     } else if (t.name == "last_action") {
       v = last_action_;
     } else {
@@ -294,20 +294,18 @@ void LeggedRLDeploy::updateHighController() {
       // The only  difference is whether sim/real robot will get a clipped final torque or a PD target with a clipped feedforward torque.
       // Note: if using the latter way and robot has very high kp/kd and higher frequency than low-level controller, the final torque may still exceed the limit since the clipping happens before PD.
       // High-level (target joint pos) -> Low-level (PD -> clip on final tau) -> sim/real robot (tau)
-      auto& cmd = lowcmd_msg_.motor_cmd[j];
-      auto& state = lowstate_msg_.motor_state[j];
-      cmd.tau = stiffness_[i] * (output_buf_[i] - state.q) + damping_[i] * (0.0f - state.dq);
-      cmd.q = 0.0f;
-      cmd.dq = 0.0f;
-      cmd.kp = 0.0f;
-      cmd.kd = 0.0f;
+      jnt_cmd_.tau[j] = stiffness_[i] * (output_buf_[i] - real_state_.joint_pos()[j]) + damping_[i] * (0.0f - real_state_.joint_vel()[j]);
+      jnt_cmd_.q[j] = 0.0f;
+      jnt_cmd_.dq[j] = 0.0f;
+      jnt_cmd_.kp[j] = 0.0f;
+      jnt_cmd_.kd[j] = 0.0f;
     } else {
       // High-level (target joint pos) -> Low-level (clip on feedforward tau) -> sim/real robot (PD)
-      lowcmd_msg_.motor_cmd[j].q   = output_buf_[i];
-      lowcmd_msg_.motor_cmd[j].kp  = stiffness_[i];
-      lowcmd_msg_.motor_cmd[j].kd  = damping_[i];
-      lowcmd_msg_.motor_cmd[j].dq  = 0.0f;
-      lowcmd_msg_.motor_cmd[j].tau = 0.0f;
+      jnt_cmd_.q[j]   = output_buf_[i];
+      jnt_cmd_.kp[j]  = stiffness_[i];
+      jnt_cmd_.kd[j]  = damping_[i];
+      jnt_cmd_.dq[j]  = 0.0f;
+      jnt_cmd_.tau[j] = 0.0f;
     }
   }
 }
