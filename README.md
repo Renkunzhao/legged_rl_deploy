@@ -26,9 +26,9 @@ A deployment framework for reinforcement learning (RL) policies on Unitree Go2 a
 
 ### Dependencies
 
-- [TorchScript](TorchScript.md)
+- [LibTorch](LibTorch.md)
 
-- ONNX Runtime (Coming soon)   .
+- [ORT](get_ort.sh)
 
 - [unitree_lowlevel](https://github.com/Renkunzhao/unitree_lowlevel.git)
 
