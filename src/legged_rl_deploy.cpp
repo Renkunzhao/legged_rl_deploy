@@ -25,12 +25,12 @@ void LeggedRLDeploy::initHighController() {
   }
 
   if (configNode_["tau_max"]) {
-    robot_model_.setTauMaxOrder(LeggedAI::yamlToEigenVector(configNode_["tau_max"]));
+    robot_model_.setTauMaxOrder(legged_base::yamlToEigenVec(configNode_["tau_max"]));
   }
 
   const auto& pnode = configNode_["policy"];
   const std::string backend    = pnode["backend"].as<std::string>("torch");
-  const std::string model_path = LeggedAI::getEnv("WORKSPACE") + "/" + pnode["model_path"].as<std::string>();
+  const std::string model_path = legged_base::getEnv("WORKSPACE") + "/" + pnode["model_path"].as<std::string>();
 
   input_dim_ = pnode["input_dim"].as<size_t>();
   output_dim_ = pnode["output_dim"].as<size_t>();
