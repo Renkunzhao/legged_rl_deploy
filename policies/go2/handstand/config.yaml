@@ -12,9 +12,9 @@ tau_max:
 
 policy:
   # backend: libtorch
-  # model_path: src/legged_rl_deploy/policies/go2_legstand.pt
+  # model_path: src/legged_rl_deploy/policies/go2/handstand/policy.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2_legstand.onnx
+  model_path: src/legged_rl_deploy/policies/go2/handstand/policy.onnx
   input_dim: 48          # ✅ handstand: frame_stack=1, num_single_obs=48
   output_dim: 12
   policy_dt: 0.02

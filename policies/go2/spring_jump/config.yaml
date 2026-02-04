@@ -11,9 +11,9 @@ tau_max:
 
 policy:
   # backend: libtorch
-  # model_path: src/legged_rl_deploy/policies/go2_spring_jump.pt
+  # model_path: src/legged_rl_deploy/policies/go2/spring_jump/policy.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2_spring_jump.onnx
+  model_path: src/legged_rl_deploy/policies/go2/spring_jump/policy.onnx
   input_dim: 470          # 47 * 10
   output_dim: 12
   policy_dt: 0.02

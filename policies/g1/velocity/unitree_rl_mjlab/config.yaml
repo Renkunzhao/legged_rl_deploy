@@ -6,7 +6,7 @@ ll_dt: 0.005
 
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/g1-velocity-unitree_rl_mjlab/policy.onnx
+  model_path: src/legged_rl_deploy/policies/g1/velocity/unitree_rl_mjlab/policy.onnx
   input_dim: 96
   output_dim: 29
   policy_dt: 0.02

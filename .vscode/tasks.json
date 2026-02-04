@@ -16,22 +16,11 @@
       "default": "lo"
     },
     {
-      "id": "policy",
-      "type": "pickString",
-      "description": "Select RL policy",
-      "options": [
-        "go2-velocity-unitree", 
-        "go2-velocity-mjlab", 
-        "go2-trot", 
-        "go2-walk", 
-        "go2-jump", 
-        "go2-spring_jump", 
-        "go2-legstand", 
-        "go2-handstand",
-        "g1-velocity-unitree_rl_mjlab"
-      ],
-      "default": "go2-velocity-unitree"
-    }
+        "id": "Config Path",
+        "type": "promptString",
+        "description": "Input config path",
+        "default": ""
+    },
   ],
   "tasks": [
     {
@@ -77,7 +66,7 @@
         "${input:NetworkInterface}",
         "ros2", "run", "legged_rl_deploy", "legged_rl_deploy_node",
         "${input:NetworkInterface}",
-        "${env:WORKSPACE}/src/legged_rl_deploy/config/${input:policy}.yaml"
+        "${env:WORKSPACE}/src/legged_rl_deploy/${input:Config Path}"
       ],
       "problemMatcher": []
     },

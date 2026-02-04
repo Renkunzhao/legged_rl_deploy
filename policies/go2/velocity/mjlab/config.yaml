@@ -9,9 +9,9 @@ clip_final_tau: false
 # TorchScript policy for C++ inference
 policy:
   # backend: libtorch
-  # model_path: src/legged_rl_deploy/policies/go2_velocity-mjlab.pt
+  # model_path: src/legged_rl_deploy/policies/go2/velocity/mjlab/polity.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2_velocity-mjlab.onnx
+  model_path: src/legged_rl_deploy/policies/go2/velocity/mjlab/polity.onnx
   input_dim: 45
   output_dim: 12
   # src/mjlab/tasks/velocity/velocity_env_cfg.py ManagerBasedRlEnvCfg

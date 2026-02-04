@@ -6,9 +6,9 @@ ll_dt: 0.005
 
 policy:
   # backend: libtorch
-  # model_path: src/legged_rl_deploy/policies/go2_jump.pt
+  # model_path: src/legged_rl_deploy/policies/go2/hop/policy.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2_jump.onnx
+  model_path: src/legged_rl_deploy/policies/go2/hop/policy.onnx
   input_dim: 470          # 47 * 10
   output_dim: 12
   policy_dt: 0.02
