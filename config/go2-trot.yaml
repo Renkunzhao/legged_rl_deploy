@@ -5,8 +5,10 @@ llc_config_file:
 ll_dt: 0.005  # override in unitree_lowlevel
 
 policy:
-  backend: libtorch
-  model_path: src/legged_rl_deploy/policies/go2_trot.pt
+  # backend: libtorch
+  # model_path: src/legged_rl_deploy/policies/go2_trot.pt
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2_trot.onnx
   input_dim: 470          # 47 * 10
   output_dim: 12
   policy_dt: 0.02

@@ -5,8 +5,10 @@ llc_config_file: src/unitree_lowlevel/config/go2.yaml
 ll_dt: 0.005
 
 policy:
-  backend: libtorch
-  model_path: src/legged_rl_deploy/policies/go2_jump.pt
+  # backend: libtorch
+  # model_path: src/legged_rl_deploy/policies/go2_jump.pt
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2_jump.onnx
   input_dim: 470          # 47 * 10
   output_dim: 12
   policy_dt: 0.02

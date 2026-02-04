@@ -10,8 +10,10 @@ tau_max:
   25, 25, 25]
 
 policy:
-  backend: libtorch
-  model_path: src/legged_rl_deploy/policies/go2_spring_jump.pt
+  # backend: libtorch
+  # model_path: src/legged_rl_deploy/policies/go2_spring_jump.pt
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2_spring_jump.onnx
   input_dim: 470          # 47 * 10
   output_dim: 12
   policy_dt: 0.02

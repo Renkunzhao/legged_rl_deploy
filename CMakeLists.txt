@@ -15,10 +15,10 @@ add_compile_options(-Wno-return-type -Wno-deprecated-declarations)
 find_package(catkin QUIET)
 if(catkin_FOUND)
   message(STATUS "Found catkin")
-    catkin_package(
-        INCLUDE_DIRS include
-        LIBRARIES ${PROJECT_NAME}
-    )
+  catkin_package(
+    INCLUDE_DIRS include
+    LIBRARIES ${PROJECT_NAME}
+  )
 endif()
 
 ##############################
@@ -27,13 +27,12 @@ endif()
 
 find_package(unitree_lowlevel REQUIRED)
 find_package(legged_base REQUIRED)
-find_package(Torch REQUIRED)
+find_package(Torch QUIET)
 
 ##############################
 # 3️⃣ 创建库（导出给上游用）
 ##############################
 add_library(${PROJECT_NAME} STATIC
-    src/policy/torch_policy_runner.cpp
     src/policy/policy_factory.cpp
     src/legged_rl_deploy.cpp
 )
@@ -41,8 +40,8 @@ add_library(${PROJECT_NAME} STATIC
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 target_include_directories(${PROJECT_NAME} PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
@@ -50,8 +49,12 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   legged_base::legged_base
 )
 
-if (Torch_FOUND)
+##############################
+# 4.1️⃣ 绑定 Torch（可选）
+##############################
+if(Torch_FOUND)
   message(STATUS "Found libtorch: ${Torch_VERSION}")
+  target_sources(${PROJECT_NAME} PRIVATE src/policy/torch_policy_runner.cpp)
   target_link_libraries(${PROJECT_NAME} PUBLIC ${TORCH_LIBRARIES})
   target_compile_definitions(${PROJECT_NAME} PUBLIC USE_TORCH)
   target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
@@ -60,17 +63,36 @@ if (Torch_FOUND)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
   endif()
 else()
-  message(WARNING "libtorch not found. TorchScript inference will not be available.")
+  message(STATUS "libtorch not found. TorchScript inference will be disabled.")
 endif()
 
 ##############################
-# 4️⃣ 可执行文件（独立测试）
+# 4.2️⃣ 绑定 ORT（可选）
+##############################
+set(ORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/onnxruntime")
+set(ORT_INC  "${ORT_ROOT}/include")
+set(ORT_LIB  "${ORT_ROOT}/lib/libonnxruntime.so")
+
+if(EXISTS "${ORT_INC}/onnxruntime_cxx_api.h" AND EXISTS "${ORT_LIB}")
+  message(STATUS "Found ORT in ${ORT_ROOT}")
+  target_sources(${PROJECT_NAME} PRIVATE src/policy/ort_policy_runner.cpp)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE USE_ORT)
+  target_include_directories(${PROJECT_NAME} PRIVATE "${ORT_INC}")
+  target_link_libraries(${PROJECT_NAME} PUBLIC "${ORT_LIB}")
+  target_link_options(${PROJECT_NAME} PUBLIC "-Wl,-rpath,${ORT_ROOT}/lib")
+else()
+  message(STATUS "ORT not found in ${ORT_ROOT} (skip ORT)")
+endif()
+
+
+##############################
+# 5️⃣ 可执行文件（独立测试）
 ##############################
 add_executable(legged_rl_deploy_node src/legged_rl_deploy_node.cpp)
 target_link_libraries(legged_rl_deploy_node PRIVATE ${PROJECT_NAME})
 
 ##############################
-# 5️⃣ 安装：库 + 头文件 + CMake Package（关键）
+# 6️⃣ 安装：库 + 头文件 + CMake Package
 ##############################
 # 安装库
 install(TARGETS ${PROJECT_NAME}
@@ -93,7 +115,7 @@ install(EXPORT ${PROJECT_NAME}Targets
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
 )
 
-# 生成并安装 Config.cmake + ConfigVersion.cmake（你需要提供 .in 模板文件）
+# 生成并安装 Config.cmake + ConfigVersion.cmake（需要提供 .in 模板文件）
 configure_package_config_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
@@ -113,35 +135,35 @@ install(FILES
 )
 
 ##############################
-# 5️⃣ ROS1 测试与安装
+# 7️⃣ ROS1 测试与安装
 ##############################
 if(catkin_FOUND)
-    # 安装库和头文件
-    install(TARGETS ${PROJECT_NAME}
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-    )
-    install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-    )
+  # 安装库和头文件
+  install(TARGETS ${PROJECT_NAME}
+    ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+    LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+    RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  )
+  install(DIRECTORY include/${PROJECT_NAME}/
+    DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+  )
 endif()
 
 ##############################
-# 6️⃣ ROS2 / ament_cmake 支持
+# 8️⃣ ROS2 / ament_cmake 支持
 ##############################
 find_package(ament_cmake QUIET)
 if(ament_cmake_FOUND)
-    message(STATUS "Found ament_cmake")
+  message(STATUS "Found ament_cmake")
 
-    # 安装可执行文件
-    install(TARGETS legged_rl_deploy_node
-        DESTINATION lib/${PROJECT_NAME}
-    )
+  # 安装可执行文件
+  install(TARGETS legged_rl_deploy_node
+    DESTINATION lib/${PROJECT_NAME}
+  )
 
-    # 这两行让 ament 生态下的下游也能拿到 targets/依赖（推荐）
-    ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
-    ament_export_dependencies(unitree_lowlevel legged_base)
+  # 这两行让 ament 生态下的下游也能拿到 targets/依赖（推荐）
+  ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
+  ament_export_dependencies(unitree_lowlevel legged_base)
 
-    ament_package()
+  ament_package()
 endif()

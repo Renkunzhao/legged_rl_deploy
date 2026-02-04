@@ -25,6 +25,30 @@
   ],
   "tasks": [
     {
+      "label": "Download Ort",
+      "type": "shell",
+      "command": "bash scripts/get_ort.sh && bash scripts/pt_to_onnx_uv.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Convert pt to onnx",
+      "type": "shell",
+      "command": "${env:HOME}/.local/bin/uv",
+      "args": [
+          "run","python", "scripts/pt_to_onnx.py",
+          "--pt", "policies/go2_${input:policy}.pt",
+          "--onnx", "policies/go2_${input:policy}.onnx", 
+          "--config", "config/go2-${input:policy}.yaml"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Build",
       "type": "shell",
       "command": "source ${env:WORKSPACE}/install/setup.sh; colcon build --packages-up-to legged_rl_deploy --cmake-args -DCMAKE_BUILD_TYPE=${input:BuildType}",

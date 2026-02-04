@@ -11,8 +11,10 @@ tau_max:
   33.5, 33.5, 33.5]
 
 policy:
-  backend: libtorch
-  model_path: src/legged_rl_deploy/policies/go2_handstand.pt
+  # backend: libtorch
+  # model_path: src/legged_rl_deploy/policies/go2_handstand.pt
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2_handstand.onnx
   input_dim: 48          # ✅ handstand: frame_stack=1, num_single_obs=48
   output_dim: 12
   policy_dt: 0.02

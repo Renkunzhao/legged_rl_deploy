@@ -6,9 +6,10 @@ clip_final_tau: false
 
 # TorchScript policy for C++ inference
 policy:
-  backend: libtorch
-  # Change to your exported TorchScript model path (.pt or .ts)
-  model_path: src/legged_rl_deploy/policies/go2_velocity_unitree.pt
+  # backend: libtorch
+  # model_path: src/legged_rl_deploy/policies/go2_velocity-unitree.pt
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2_velocity-unitree.onnx
   input_dim: 45
   output_dim: 12
   policy_dt: 0.02

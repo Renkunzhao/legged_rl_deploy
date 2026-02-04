@@ -8,8 +8,10 @@ clip_final_tau: false
 # mjlab commit: 468f283d4868019c012980ac5c9daf773103622e
 # TorchScript policy for C++ inference
 policy:
-  backend: libtorch
-  model_path: src/legged_rl_deploy/policies/go2_velocity_mjlab.pt
+  # backend: libtorch
+  # model_path: src/legged_rl_deploy/policies/go2_velocity-mjlab.pt
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2_velocity-mjlab.onnx
   input_dim: 45
   output_dim: 12
   # src/mjlab/tasks/velocity/velocity_env_cfg.py ManagerBasedRlEnvCfg
