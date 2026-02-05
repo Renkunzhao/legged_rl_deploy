@@ -28,7 +28,7 @@ A deployment framework for reinforcement learning (RL) policies on Unitree Go2 a
 
 - [LibTorch](LibTorch.md)
 
-- [ORT](get_ort.sh)
+- [ORT](scripts/get_ort.sh)
 
 - [unitree_lowlevel](https://github.com/Renkunzhao/unitree_lowlevel.git)
 

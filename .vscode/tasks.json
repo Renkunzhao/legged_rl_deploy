@@ -50,7 +50,7 @@
     {
       "label": "Build",
       "type": "shell",
-      "command": "source ${env:WORKSPACE}/install/setup.sh; colcon build --packages-up-to legged_rl_deploy --cmake-args -DCMAKE_BUILD_TYPE=${input:BuildType}",
+      "command": "source ${env:WORKSPACE}/install/setup.sh; colcon build --event-handlers console_direct+ --packages-up-to  legged_rl_deploy --cmake-args -DCMAKE_BUILD_TYPE=${input:BuildType}",
       "group": "build",
       "options": { "cwd": "${env:WORKSPACE}" },
       "problemMatcher": []
