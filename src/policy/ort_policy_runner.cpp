@@ -17,7 +17,7 @@ void OrtPolicyRunner::load(const std::string& model_path, int input_dim, int out
   output_dim_ = output_dim;
   out_dim64_  = static_cast<int64_t>(output_dim_);
 
-  opt_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+  opt_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
   opt_.SetIntraOpNumThreads(1);
 
   session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), opt_);
