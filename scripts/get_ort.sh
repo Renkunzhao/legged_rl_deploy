@@ -14,7 +14,7 @@ URL="https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/${TGZ}"
 wget -nc "$URL"
 tar -xzf "$TGZ" --strip-components=1 -C onnxruntime
 
-cd $PROJECT_DIR
+cd $PROJECT_DIR/scripts
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 uv venv --clear

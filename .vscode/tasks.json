@@ -49,12 +49,12 @@
       "type": "shell",
       "command": "${env:HOME}/.local/bin/uv",
       "args": [
-          "run","python", "scripts/pt_to_onnx.py",
-          "--pt", "${input:Config Path}/policy.pt",
-          "--onnx", "${input:Config Path}/policy.onnx", 
-          "--config", "${input:Config Path}/config.yaml"
+          "run","python", "pt_to_onnx.py",
+          "--pt", "../${input:Config Path}/policy.pt",
+          "--onnx", "../${input:Config Path}/policy.onnx", 
+          "--config", "../${input:Config Path}/config.yaml"
       ],
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": { "cwd": "${workspaceFolder}/scripts" },
       "problemMatcher": []
     },
     {
@@ -71,14 +71,14 @@
       "type": "process",
       "command": "bash",
       "args": [
-        "${workspaceFolder}/scripts/run.sh",
+        "scripts/run.sh",
         "lo", 
         "colcon", "build", "--event-handlers", "console_direct+",
         "--packages-up-to", "legged_rl_deploy",
         "--cmake-args", "-DCMAKE_BUILD_TYPE=${input:BuildType}"
       ],
       "group": "build",
-      "options": { "cwd": "${env:WORKSPACE}" },
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
 
@@ -88,12 +88,14 @@
       "type": "process",
       "command": "bash",
       "args": [
-        "${workspaceFolder}/scripts/run.sh",
+        "scripts/run.sh",
         "${input:NetworkInterface}",
         "ros2", "run", "legged_rl_deploy", "legged_rl_deploy_node",
         "${input:NetworkInterface}",
-        "${env:WORKSPACE}/src/legged_rl_deploy/${input:Config Path}/config.yaml"
+        "${workspaceFolder}/${input:Config Path}/config.yaml"
       ],
+      "options": { 
+        "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
   ]
