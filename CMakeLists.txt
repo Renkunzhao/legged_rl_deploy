@@ -27,6 +27,7 @@ endif()
 
 find_package(unitree_lowlevel REQUIRED)
 find_package(legged_base REQUIRED)
+find_package(ZLIB REQUIRED)
 find_package(Torch QUIET)
 
 ##############################
@@ -35,6 +36,8 @@ find_package(Torch QUIET)
 add_library(${PROJECT_NAME}
     src/policy/policy_factory.cpp
     src/legged_rl_deploy.cpp
+    src/motion/cnpy.cpp
+    src/motion/motion_loader.cpp
 )
 
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
