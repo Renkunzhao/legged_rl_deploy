@@ -36,8 +36,10 @@ LibTorch is typically not provided for Jetson. Install PyTorch first, then point
 For CPU-only, a simple install may work:
 
 ```bash
-uv pip install torch
+uv pip install torch numpy
 ```
+
+**Note:** A CPU-only PyTorch build on Jetson is often insufficient for real-time deployments.
 
 #### GPU (on Jetson host)
 

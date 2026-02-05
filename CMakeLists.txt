@@ -32,7 +32,7 @@ find_package(Torch QUIET)
 ##############################
 # 3️⃣ 创建库（导出给上游用）
 ##############################
-add_library(${PROJECT_NAME} STATIC
+add_library(${PROJECT_NAME}
     src/policy/policy_factory.cpp
     src/legged_rl_deploy.cpp
 )

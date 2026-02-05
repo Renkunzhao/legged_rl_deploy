@@ -21,12 +21,24 @@
         "description": "Input config path",
         "default": ""
     },
+    {
+        "id": "Python Version",
+        "type": "promptString",
+        "description": "Input Python version",
+        "default": ""
+    },
+    {
+        "id": "Pytorch Wheel URL",
+        "type": "promptString",
+        "description": "Input PyTorch wheel URL",
+        "default": ""
+    },
   ],
   "tasks": [
     {
-      "label": "Download Ort",
+      "label": "Download ORT",
       "type": "shell",
-      "command": "bash scripts/get_ort.sh && bash scripts/pt_to_onnx_uv.sh",
+      "command": "bash scripts/get_ort.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -42,6 +54,13 @@
           "--onnx", "${input:Config Path}/policy.onnx", 
           "--config", "${input:Config Path}/config.yaml"
       ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Download Torch",
+      "type": "shell",
+      "command": "bash scripts/get_torch.sh ${input:Python Version} ${input:Pytorch Wheel URL}",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -49,8 +68,15 @@
     },
     {
       "label": "Build",
-      "type": "shell",
-      "command": "source ${env:WORKSPACE}/install/setup.sh; colcon build --event-handlers console_direct+ --packages-up-to  legged_rl_deploy --cmake-args -DCMAKE_BUILD_TYPE=${input:BuildType}",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/run.sh",
+        "lo", 
+        "colcon", "build", "--event-handlers", "console_direct+",
+        "--packages-up-to", "legged_rl_deploy",
+        "--cmake-args", "-DCMAKE_BUILD_TYPE=${input:BuildType}"
+      ],
       "group": "build",
       "options": { "cwd": "${env:WORKSPACE}" },
       "problemMatcher": []
@@ -62,7 +88,7 @@
       "type": "process",
       "command": "bash",
       "args": [
-        "${env:WORKSPACE}/src/unitree_lowlevel/scripts/ros2_task.sh",
+        "${workspaceFolder}/scripts/run.sh",
         "${input:NetworkInterface}",
         "ros2", "run", "legged_rl_deploy", "legged_rl_deploy_node",
         "${input:NetworkInterface}",
