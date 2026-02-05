@@ -38,9 +38,9 @@
       "command": "${env:HOME}/.local/bin/uv",
       "args": [
           "run","python", "scripts/pt_to_onnx.py",
-          "--pt", "policies/go2_${input:policy}.pt",
-          "--onnx", "policies/go2_${input:policy}.onnx", 
-          "--config", "config/go2-${input:policy}.yaml"
+          "--pt", "${input:Config Path}/policy.pt",
+          "--onnx", "${input:Config Path}/policy.onnx", 
+          "--config", "${input:Config Path}/config.yaml"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -66,7 +66,7 @@
         "${input:NetworkInterface}",
         "ros2", "run", "legged_rl_deploy", "legged_rl_deploy_node",
         "${input:NetworkInterface}",
-        "${env:WORKSPACE}/src/legged_rl_deploy/${input:Config Path}"
+        "${env:WORKSPACE}/src/legged_rl_deploy/${input:Config Path}/config.yaml"
       ],
       "problemMatcher": []
     },
