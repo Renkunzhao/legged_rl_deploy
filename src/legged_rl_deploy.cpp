@@ -1,12 +1,17 @@
 #include "legged_rl_deploy/legged_rl_deploy.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "legged_rl_deploy/policy/policy_factory.h"
 #include <legged_base/Utils.h>
+#include <legged_base/math/eigen_utils.hpp>
+#include <legged_base/math/rotation_euler_zyx.hpp>
+#include <unitree_lowlevel/adapter/g1_adapter.hpp>
 
 namespace legged_rl_deploy {
 
@@ -48,6 +53,14 @@ void LeggedRLDeploy::initHighController() {
   damping_ = pnode["damping"].as<std::vector<float>>();
   last_action_.assign(damping_.size(), 0.0f);
 
+  // -------- motion loader --------
+  if (pnode["motions"]) {
+    const std::string motion_file = legged_base::getEnv("WORKSPACE") + "/" + pnode["motions"]["file"].as<std::string>();
+    motion_ = std::make_unique<MotionLoader>(motion_file, pnode["motions"]["dt"].as<float>());
+    std::cout << "[LeggedRLDeploy] Loaded motion file: " << motion_file 
+              << "\nduration= " << motion_->duration << " dt=" << motion_->dt << std::endl;
+  }
+
   // -------- commands --------
   if (pnode["commands"]) {
     for (auto it = pnode["commands"].begin(); it != pnode["commands"].end(); ++it) {
@@ -79,6 +92,19 @@ void LeggedRLDeploy::resetHighController() {
   std::fill(output_buf_.begin(), output_buf_.end(), 0.0f);
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
   obs_hist_.clear();
+
+  if (motion_) {
+    // align motion yaw to current robot yaw at reset time
+    motion_cnt_ = 0;
+    motion_->update(motion_time_start_);
+
+    const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(motion_->root_quaternion(), motion_->joint_pos());
+    const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(real_state_.base_quat().cast<float>(), real_state_.joint_pos().cast<float>());
+
+    const Eigen::Matrix3f ref_yaw = legged_base::extractYawQuaternion(ref_q).toRotationMatrix();
+    const Eigen::Matrix3f real_yaw = legged_base::extractYawQuaternion(real_q).toRotationMatrix();
+    motion_yaw_align_ = real_yaw * ref_yaw.transpose();
+  }
 }
 
 void LeggedRLDeploy::registryObsTerms(YAML::Node node) {
@@ -124,6 +150,12 @@ void LeggedRLDeploy::registryObsTerms(YAML::Node node) {
 
 void LeggedRLDeploy::assembleObsFrame() {
   std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
+
+  if (motion_) {
+    const float t = static_cast<float>(motion_cnt_ * policy_dt_) + motion_time_start_;
+    motion_->update(t);
+    motion_cnt_++;
+  }
 
   for (const auto& t : obs_terms_) {
     std::vector<float> v(t.dim, 0.0f);
@@ -221,15 +253,39 @@ void LeggedRLDeploy::assembleObsFrame() {
         v[i] = real_state_.joint_pos()[joint_ids_map_[i]];
     } else if (t.name == "joint_vel") {
       for (size_t i = 0; i < robot_model_.nJoints(); ++i)
-        v[i] = real_state_.joint_pos()[joint_ids_map_[i]];
+        v[i] = real_state_.joint_vel()[joint_ids_map_[i]];
     } else if (t.name == "last_action") {
       v = last_action_;
+    } else if (t.name == "motion_command") {
+      if (!motion_) throw std::runtime_error("[LeggedRLDeploy] motion_command requested but motion not loaded");
+
+      for (size_t i = 0; i < robot_model_.nJoints(); ++i) {
+        v[i]                          =  motion_->joint_pos()[joint_ids_map_[i]];
+        v[i + robot_model_.nJoints()] =  motion_->joint_vel()[joint_ids_map_[i]];
+      }
+    } else if (t.name == "motion_anchor_ori_b") {
+      if (!motion_) throw std::runtime_error("[LeggedRLDeploy] motion_anchor_ori_b requested but motion not loaded");
+
+      const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(
+        motion_->root_quaternion(), motion_->joint_pos());
+      const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(
+        real_state_.base_quat().cast<float>(), real_state_.joint_pos().cast<float>());
+
+      const auto rot_ = (motion_yaw_align_ * ref_q).conjugate() * real_q;
+      const Eigen::Matrix3f rot = rot_.toRotationMatrix().transpose();
+
+      v[0] = rot(0, 0);
+      v[1] = rot(0, 1);
+      v[2] = rot(1, 0);
+      v[3] = rot(1, 1);
+      v[4] = rot(2, 0);
+      v[5] = rot(2, 1);
     } else {
       throw std::runtime_error("Unknown obs term: " + t.name);
     }
 
     if (t.proc) t.proc->process(v);
-    std::copy(v.begin(), v.end(), obs_now_.begin() + t.offset);
+   std::copy(v.begin(), v.end(), obs_now_.begin() + t.offset);
   }
 }
 

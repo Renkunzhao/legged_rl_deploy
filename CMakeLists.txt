@@ -50,6 +50,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_link_libraries(${PROJECT_NAME} PUBLIC
   unitree_lowlevel::unitree_lowlevel
   legged_base::legged_base
+  ZLIB::ZLIB
 )
 
 ##############################

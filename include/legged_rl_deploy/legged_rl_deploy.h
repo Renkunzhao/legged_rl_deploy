@@ -2,14 +2,18 @@
 
 #include <string>
 #include <vector>
-#include <yaml-cpp/yaml.h>
 #include <deque>
+#include <cmath>
+
+#include <yaml-cpp/yaml.h>
+#include <Eigen/Geometry>
 
 #include "legged_rl_deploy/policy/i_policy_runner.h"
 #include "legged_rl_deploy/processor.h"
+#include "legged_rl_deploy/motion/motion_loader.h"
 
-#include <unitree_lowlevel/lowlevel_controller.h>
 #include <legged_base/LeggedModel.h>
+#include <unitree_lowlevel/lowlevel_controller.h>
 
 namespace legged_rl_deploy {
 
@@ -57,6 +61,12 @@ private:
   std::vector<float> obs_now_;                 // 单帧 obs（obs_dim_）
   std::deque<std::vector<float>> obs_hist_;      // 历史帧
 
+  // -------- mimic motion --------
+  std::unique_ptr<MotionLoader> motion_;
+  size_t motion_cnt_ = 0;
+  float motion_time_start_ = 0.0f;
+  Eigen::Quaternionf motion_yaw_align_ = Eigen::Quaternionf::Identity();
+
   void calculateObsTerm(ObsTerm& term) {
     if (term.name == "constants") {
       if (!term.params || !term.params["vec"]) {
@@ -81,6 +91,8 @@ private:
     if (term.name == "joint_pos") term.dim = robot_model_.nJoints();
     if (term.name == "joint_vel") term.dim = robot_model_.nJoints();
     if (term.name == "last_action") term.dim = output_dim_;
+    if (term.name == "motion_command") term.dim = 2 * robot_model_.nJoints();
+    if (term.name == "motion_anchor_ori_b") term.dim = 6;
   }
 };
 
