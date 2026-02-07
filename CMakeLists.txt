@@ -35,9 +35,9 @@ find_package(Torch QUIET)
 ##############################
 add_library(${PROJECT_NAME}
     src/policy/policy_factory.cpp
+    src/policy_slot.cpp
     src/legged_rl_deploy.cpp
     src/motion/cnpy.cpp
-    src/motion/motion_loader.cpp
 )
 
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})

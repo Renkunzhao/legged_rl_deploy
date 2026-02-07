@@ -7,360 +7,188 @@
 #include <stdexcept>
 #include <vector>
 
-#include "legged_rl_deploy/policy/policy_factory.h"
 #include <legged_base/Utils.h>
-#include <legged_base/math/eigen_utils.hpp>
-#include <legged_base/math/rotation_euler_zyx.hpp>
-#include <unitree_lowlevel/adapter/g1_adapter.hpp>
 
 namespace legged_rl_deploy {
 
+// ===========================================================================
+// Construction
+// ===========================================================================
 LeggedRLDeploy::LeggedRLDeploy(std::string configFile) {
   configNode_ = YAML::LoadFile(configFile);
   std::cout << "[LeggedRLDeploy] Load config from " << configFile << std::endl;
 }
 
+// ===========================================================================
+// switchToPolicy
+// ===========================================================================
+void LeggedRLDeploy::switchToPolicy(const std::string& name) {
+  auto it = slots_.find(name);
+  if (it == slots_.end()) {
+    std::cerr << "[LeggedRLDeploy] Policy '" << name
+              << "' not found, ignoring." << std::endl;
+    return;
+  }
+  std::cout << "[LeggedRLDeploy] Switch: " << active_name_ << " -> " << name
+            << std::endl;
+  active_name_ = name;
+  active_slot_ = it->second.get();
+  active_slot_->reset(real_state_);
+}
+
+// ===========================================================================
+// initHighController
+// ===========================================================================
 void LeggedRLDeploy::initHighController() {
   if (configNode_["ll_dt"]) {
     ll_dt_ = configNode_["ll_dt"].as<double>();
   }
-
   if (configNode_["clip_final_tau"]) {
     clip_final_tau_ = configNode_["clip_final_tau"].as<bool>();
   }
-
   if (configNode_["tau_max"]) {
     robot_model_.setTauMaxOrder(legged_base::yamlToEigenVec(configNode_["tau_max"]));
   }
 
-  const auto& pnode = configNode_["policy"];
-  const std::string backend    = pnode["backend"].as<std::string>("torch");
-  const std::string model_path = legged_base::getEnv("WORKSPACE") + "/" + pnode["model_path"].as<std::string>();
+  // ------------------------------------------------------------------
+  // Detect mode: fsm (multi-policy) vs. policy (single, backward compat)
+  // ------------------------------------------------------------------
+  if (configNode_["fsm"]) {
+    // ======== multi-policy mode ========
+    single_mode_ = false;
+    const auto& fsmNode = configNode_["fsm"];
 
-  input_dim_ = pnode["input_dim"].as<size_t>();
-  output_dim_ = pnode["output_dim"].as<size_t>();
+    // --- Build a YAML node for GamepadFSM ---
+    // GamepadFSM expects: { default: ..., states: { name: { transitions: ... }, ... } }
+    YAML::Node gfsmYaml;
+    gfsmYaml["default"] = fsmNode["default"].as<std::string>();
 
-  policy_runner_ = makePolicyRunner(backend);
-  policy_runner_->load(model_path, input_dim_, output_dim_);
-  std::cout << "[LeggedRLDeploy] Policy load successfully." << std::endl;
-
-  input_buf_.assign(input_dim_, 0.0f);
-  output_buf_.assign(output_dim_, 0.0f);
-
-  policy_dt_ = pnode["policy_dt"].as<float>(0.02f);
-  joint_ids_map_ = pnode["joint_ids_map"].as<std::vector<size_t>>();
-  stiffness_ = pnode["stiffness"].as<std::vector<float>>();
-  damping_ = pnode["damping"].as<std::vector<float>>();
-  last_action_.assign(damping_.size(), 0.0f);
-
-  // -------- motion loader --------
-  if (pnode["motions"]) {
-    const std::string motion_file = legged_base::getEnv("WORKSPACE") + "/" + pnode["motions"]["file"].as<std::string>();
-    motion_ = std::make_unique<MotionLoader>(motion_file, pnode["motions"]["dt"].as<float>());
-    std::cout << "[LeggedRLDeploy] Loaded motion file: " << motion_file 
-              << "\nduration= " << motion_->duration << " dt=" << motion_->dt << std::endl;
-  }
-
-  // -------- commands --------
-  if (pnode["commands"]) {
-    for (auto it = pnode["commands"].begin(); it != pnode["commands"].end(); ++it) {
-      const std::string name = it->first.as<std::string>();
-      auto maybe = Processor::TryLoad(it->second);
-      if (maybe) commands_.emplace(name, std::move(*maybe));
+    const auto& policies = fsmNode["policies"];
+    if (!policies || !policies.IsMap()) {
+      throw std::runtime_error("[LeggedRLDeploy] fsm.policies must be a map");
     }
-  }
 
-  // -------- actions --------
-  if (pnode["actions"]) {
-    for (auto it = pnode["actions"].begin(); it != pnode["actions"].end(); ++it) {
-      const std::string name = it->first.as<std::string>();
-      auto maybe = Processor::TryLoad(it->second);
-      if (maybe) actions_.emplace(name, std::move(*maybe));
+    YAML::Node statesYaml;
+
+    for (auto it = policies.begin(); it != policies.end(); ++it) {
+      const std::string pname = it->first.as<std::string>();
+      const auto& entry = it->second;
+
+      // --- load PolicySlot ---
+      YAML::Node policyNode;
+      if (entry["config"]) {
+        const std::string sub_path =
+            legged_base::getEnv("WORKSPACE") + "/" +
+            entry["config"].as<std::string>();
+        YAML::Node sub = YAML::LoadFile(sub_path);
+        policyNode = sub["policy"];
+        std::cout << "[LeggedRLDeploy] Load sub-config for '" << pname
+                  << "' from " << sub_path << std::endl;
+      } else if (entry["policy"]) {
+        policyNode = entry["policy"];
+      } else {
+        throw std::runtime_error(
+            "[LeggedRLDeploy] fsm.policies." + pname +
+            " must have 'config' (path) or inline 'policy' node");
+      }
+
+      auto slot =
+          std::make_unique<PolicySlot>(pname, policyNode, robot_model_);
+      slot->init();
+      slots_.emplace(pname, std::move(slot));
+
+      // --- forward transitions to GamepadFSM YAML ---
+      YAML::Node stateEntry;
+      if (entry["transitions"] && entry["transitions"].IsMap()) {
+        stateEntry["transitions"] = entry["transitions"];
+      }
+      statesYaml[pname] = stateEntry;
     }
+
+    gfsmYaml["states"] = statesYaml;
+
+    // --- init GamepadFSM ---
+    policy_fsm_.loadFromYAML(gfsmYaml);
+    policy_fsm_.setOnTransition(
+        [this](const std::string& /*from*/, const std::string& to) {
+          switchToPolicy(to);
+        });
+
+    active_name_ = policy_fsm_.activeState();
+    active_slot_ = slots_[active_name_].get();
+
+    std::cout << "[LeggedRLDeploy] Multi-policy mode: " << slots_.size()
+              << " policies loaded. default='" << active_name_ << "'"
+              << std::endl;
+
+  } else if (configNode_["policy"]) {
+    // ======== single-policy mode (backward compatible) ========
+    single_mode_ = true;
+    const std::string pname = "default";
+    auto slot = std::make_unique<PolicySlot>(
+        pname, configNode_["policy"], robot_model_);
+    slot->init();
+    active_name_ = pname;
+    active_slot_ = slot.get();
+    slots_.emplace(pname, std::move(slot));
+
+    std::cout << "[LeggedRLDeploy] Single-policy mode (backward compat)."
+              << std::endl;
+
+  } else {
+    throw std::runtime_error(
+        "[LeggedRLDeploy] Config must have 'fsm' or 'policy' section");
   }
 
-  stack_len_ = pnode["observations"]["stack"]["length"].as<size_t>();
-  stack_order_ = pnode["observations"]["stack"]["order"].as<std::string>();
-  registryObsTerms(pnode["observations"]["terms"]);
-
-  std::cout << "[LeggedRLDeploy] init done. input_dim=" << input_dim_
-            << " output_dim=" << output_dim_ << std::endl;
+  std::cout << "[LeggedRLDeploy] init done." << std::endl;
 }
 
+// ===========================================================================
+// resetHighController
+// ===========================================================================
 void LeggedRLDeploy::resetHighController() {
-  std::fill(input_buf_.begin(), input_buf_.end(), 0.0f);
-  std::fill(output_buf_.begin(), output_buf_.end(), 0.0f);
-  std::fill(last_action_.begin(), last_action_.end(), 0.0f);
-  obs_hist_.clear();
-
-  if (motion_) {
-    // align motion yaw to current robot yaw at reset time
-    motion_cnt_ = 0;
-    motion_->update(motion_time_start_);
-
-    const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(motion_->root_quaternion(), motion_->joint_pos());
-    const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(real_state_.base_quat().cast<float>(), real_state_.joint_pos().cast<float>());
-
-    const Eigen::Matrix3f ref_yaw = legged_base::extractYawQuaternion(ref_q).toRotationMatrix();
-    const Eigen::Matrix3f real_yaw = legged_base::extractYawQuaternion(real_q).toRotationMatrix();
-    motion_yaw_align_ = real_yaw * ref_yaw.transpose();
+  if (!single_mode_) {
+    switchToPolicy(policy_fsm_.defaultState());
+    policy_fsm_.setState(policy_fsm_.defaultState());
+  } else if (active_slot_) {
+    active_slot_->reset(real_state_);
   }
 }
 
-void LeggedRLDeploy::registryObsTerms(YAML::Node node) {
-  obs_terms_.clear();
-  size_t off = 0;
-
-  if (!node || !node.IsMap()) {
-    throw std::runtime_error("[LeggedRLDeploy] policy.observations.terms missing or not a map");
-  }
-
-  for (auto it = node.begin(); it != node.end(); ++it) {
-    ObsTerm t;
-    t.name = it->first.as<std::string>();
-    YAML::Node term_node = it->second;
-    t.params = term_node["params"];
-
-    // -------- dim inference --------
-    calculateObsTerm(t);
-
-    t.offset = off;
-    off += t.dim;
-
-    auto maybe = Processor::TryLoad(term_node);
-    if (maybe) t.proc = std::move(*maybe);
-
-    obs_terms_.push_back(std::move(t));
-  }
-
-  obs_dim_ = off;
-
-  const size_t expected = obs_dim_ * stack_len_;
-  if (expected != input_dim_) {
-    throw std::runtime_error("[LeggedRLDeploy] input_dim mismatch: obs_dim=" +
-                             std::to_string(obs_dim_) + " stack_len=" +
-                             std::to_string(stack_len_) + " expected=" +
-                             std::to_string(expected) + " cfg input_dim=" +
-                             std::to_string(input_dim_));
-  }
-
-  obs_now_.assign(obs_dim_, 0.0f);
-  obs_hist_.clear();
-}
-
-void LeggedRLDeploy::assembleObsFrame() {
-  std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
-
-  if (motion_) {
-    const float t = static_cast<float>(motion_cnt_ * policy_dt_) + motion_time_start_;
-    motion_->update(t);
-    motion_cnt_++;
-  }
-
-  for (const auto& t : obs_terms_) {
-    std::vector<float> v(t.dim, 0.0f);
-    if (t.name == "constants") {
-      v = t.params["vec"].as<std::vector<float>>();
-    } else if (t.name == "joystick_buttons") {
-      const auto keys = t.params["keys"].as<std::vector<std::string>>();
-      for (size_t i = 0; i < keys.size(); ++i) {
-        unitree::common::Button btn;
-        if (keys[i] == "A") btn = gamepad_.A;
-        else if (keys[i] == "B") btn = gamepad_.B;
-        else if (keys[i] == "X") btn = gamepad_.X;
-        else if (keys[i] == "Y") btn = gamepad_.Y;
-        else if (keys[i] == "up") btn = gamepad_.up;
-        else if (keys[i] == "down") btn = gamepad_.down;
-        else if (keys[i] == "left") btn = gamepad_.left;
-        else if (keys[i] == "right") btn = gamepad_.right;
-        else if (keys[i] == "L1") btn = gamepad_.L1;
-        else if (keys[i] == "L2") btn = gamepad_.L2;
-        else if (keys[i] == "R1") btn = gamepad_.R1;
-        else if (keys[i] == "R2") btn = gamepad_.R2;
-        else if (keys[i] == "start") btn = gamepad_.start;
-        else if (keys[i] == "select") btn = gamepad_.select;
-        else {
-          throw std::runtime_error("[LeggedRLDeploy] Unknown joystick button: " + keys[i]);
-        }
-        v[i] = btn.pressed ? 1.0f : 0.0f;
-      }
-      // std::cout << "[LeggedRLDeploy] joystick_buttons : ";
-      // for (size_t i = 0; i < t.dim; ++i) {
-      //   std::cout << v[i] << " ";
-      // }
-      // std::cout << std::endl;
-    } else if (t.name == "gait_phase_2") {
-      float cycle_time = t.params["cycle_time"].as<float>();
-      const float phase = loop_cnt_ * ll_dt_ / cycle_time;
-      v[0] = sinf(2.0f * M_PI * phase);
-      v[1] = cosf(2.0f * M_PI * phase);
-    } else if (t.name == "base_ang_vel_W") {
-      v[0] = real_state_.base_ang_vel_W()[0];
-      v[1] = real_state_.base_ang_vel_W()[1];
-      v[2] = real_state_.base_ang_vel_W()[2];
-    } else if (t.name == "base_ang_vel_B") {
-      v[0] = real_state_.base_ang_vel_B()[0];
-      v[1] = real_state_.base_ang_vel_B()[1];
-      v[2] = real_state_.base_ang_vel_B()[2];
-    } else if (t.name == "eulerZYX_rpy") {
-      // v[0] = real_state_.base_eulerZYX()[2];
-      // v[1] = real_state_.base_eulerZYX()[1];
-      // v[2] = real_state_.base_eulerZYX()[0];
-      auto quat_to_rpy = [](const Eigen::Quaterniond& q_in) -> std::vector<float> {
-          // Python 里 quat = [x, y, z, w]
-          const double x = q_in.x();
-          const double y = q_in.y();
-          const double z = q_in.z();
-          const double w = q_in.w();
-
-          // roll (x)
-          const double t0 = 2.0 * (w * x + y * z);
-          const double t1 = 1.0 - 2.0 * (x * x + y * y);
-          double roll = std::atan2(t0, t1);
-
-          // pitch (y)
-          double t2 = 2.0 * (w * y - z * x);
-          t2 = std::clamp(t2, -1.0, 1.0);
-          double pitch = std::asin(t2);
-
-          // yaw (z)
-          const double t3 = 2.0 * (w * z + x * y);
-          const double t4 = 1.0 - 2.0 * (y * y + z * z);
-          double yaw = std::atan2(t3, t4);
-
-          std::vector<float> rpy = {(float)roll, (float)pitch, (float)yaw};
-
-          // 对齐 Python:
-          // eu_ang[eu_ang > pi] -= 2*pi
-          for (int i = 0; i < 3; ++i) {
-              if (rpy[i] > M_PI) {
-                  rpy[i] -= 2.0 * M_PI;
-              }
-          }
-
-          return rpy;
-      };
-      v = quat_to_rpy(real_state_.base_quat());
-    } else if (t.name == "projected_gravity") {
-      Eigen::Vector3d g = real_state_.base_quat().conjugate() * Eigen::Vector3d(0,0,-1);
-      v[0] = (float)g[0]; v[1] = (float)g[1]; v[2] = (float)g[2];
-    } else if (t.name == "velocity_commands") {
-      v = {gamepad_.ly, -gamepad_.lx, -gamepad_.rx};
-      auto it = commands_.find("base_velocity");
-      if (it != commands_.end()) it->second.process(v);
-    } else if (t.name == "joint_pos") {
-      for (size_t i = 0; i < robot_model_.nJoints(); ++i)
-        v[i] = real_state_.joint_pos()[joint_ids_map_[i]];
-    } else if (t.name == "joint_vel") {
-      for (size_t i = 0; i < robot_model_.nJoints(); ++i)
-        v[i] = real_state_.joint_vel()[joint_ids_map_[i]];
-    } else if (t.name == "last_action") {
-      v = last_action_;
-    } else if (t.name == "motion_command") {
-      if (!motion_) throw std::runtime_error("[LeggedRLDeploy] motion_command requested but motion not loaded");
-
-      for (size_t i = 0; i < robot_model_.nJoints(); ++i) {
-        v[i]                          =  motion_->joint_pos()[joint_ids_map_[i]];
-        v[i + robot_model_.nJoints()] =  motion_->joint_vel()[joint_ids_map_[i]];
-      }
-    } else if (t.name == "motion_anchor_ori_b") {
-      if (!motion_) throw std::runtime_error("[LeggedRLDeploy] motion_anchor_ori_b requested but motion not loaded");
-
-      const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(
-        motion_->root_quaternion(), motion_->joint_pos());
-      const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(
-        real_state_.base_quat().cast<float>(), real_state_.joint_pos().cast<float>());
-
-      const auto rot_ = (motion_yaw_align_ * ref_q).conjugate() * real_q;
-      const Eigen::Matrix3f rot = rot_.toRotationMatrix().transpose();
-
-      v[0] = rot(0, 0);
-      v[1] = rot(0, 1);
-      v[2] = rot(1, 0);
-      v[3] = rot(1, 1);
-      v[4] = rot(2, 0);
-      v[5] = rot(2, 1);
-    } else {
-      throw std::runtime_error("Unknown obs term: " + t.name);
-    }
-
-    if (t.proc) t.proc->process(v);
-   std::copy(v.begin(), v.end(), obs_now_.begin() + t.offset);
-  }
-}
-
-void LeggedRLDeploy::stackObsGlobal() {
-  // push newest to back, keep length
-  obs_hist_.push_back(obs_now_);
-  while (obs_hist_.size() > stack_len_) obs_hist_.pop_front();
-
-  // warm start: 没满就用最旧的复制补齐
-  while (obs_hist_.size() < stack_len_) obs_hist_.push_front(obs_hist_.front());
-
-  // flatten
-  size_t out = 0;
-  if (stack_order_ == "newest_first") {
-    for (size_t k = 0; k < stack_len_; ++k) {
-      const auto& fr = obs_hist_[stack_len_ - 1 - k];  // newest -> oldest
-      std::copy(fr.begin(), fr.end(), input_buf_.begin() + out);
-      out += obs_dim_;
-    }
-  } else {
-    for (size_t k = 0; k < stack_len_; ++k) {
-      const auto& fr = obs_hist_[k];                   // oldest -> newest
-      std::copy(fr.begin(), fr.end(), input_buf_.begin() + out);
-      out += obs_dim_;
-    }
-  }
-}
-
-void LeggedRLDeploy::updatePolicy() {
-  // 1) build current frame
-  assembleObsFrame();
-
-  // 2) stack to input_buf_
-  if (stack_len_ == 1) {
-    std::copy(obs_now_.begin(), obs_now_.end(), input_buf_.begin());
-  } else {
-    stackObsGlobal();
-  }
-
-  // 3) infer
-  policy_runner_->infer(input_buf_.data(), output_buf_.data());
-
-  // 4) last_action must be RAW
-  last_action_ = output_buf_;
-
-  // 5) action postprocess
-  auto it = actions_.find("JointPositionAction");
-  if (it != actions_.end()) it->second.process(output_buf_);
-}
-
+// ===========================================================================
+// updateHighController
+// ===========================================================================
 void LeggedRLDeploy::updateHighController() {
-  const int decim = std::max(1, (int)std::lround(policy_dt_ / ll_dt_));
-  if ((loop_cnt_ % decim) == 0) {
-    updatePolicy();
+  // 1) Check FSM transitions (multi-policy mode only)
+  if (!single_mode_) {
+    policy_fsm_.update(gamepad_);  // callback fires switchToPolicy if needed
   }
 
-  // 6) send lowcmd (remember dq/tau!)
-  for (size_t i = 0; i < output_dim_; ++i) {
-    const size_t j = joint_ids_map_[i];
+  // 2) Run active policy
+  active_slot_->update(real_state_, gamepad_, loop_cnt_, ll_dt_);
+
+  // 3) Write joint commands from active slot's output
+  const auto& out = active_slot_->outputBuf();
+  const auto& jmap = active_slot_->jointIdsMap();
+  const auto& kp = active_slot_->stiffness();
+  const auto& kd = active_slot_->damping();
+  const size_t n = active_slot_->outputDim();
+
+  for (size_t i = 0; i < n; ++i) {
+    const size_t j = jmap[i];
 
     if (clip_final_tau_) {
-      // The only  difference is whether sim/real robot will get a clipped final torque or a PD target with a clipped feedforward torque.
-      // Note: if using the latter way and robot has very high kp/kd and higher frequency than low-level controller, the final torque may still exceed the limit since the clipping happens before PD.
-      // High-level (target joint pos) -> Low-level (PD -> clip on final tau) -> sim/real robot (tau)
-      jnt_cmd_.tau[j] = stiffness_[i] * (output_buf_[i] - real_state_.joint_pos()[j]) + damping_[i] * (0.0f - real_state_.joint_vel()[j]);
+      jnt_cmd_.tau[j] = kp[i] * (out[i] - real_state_.joint_pos()[j]) +
+                        kd[i] * (0.0f - real_state_.joint_vel()[j]);
       jnt_cmd_.q[j] = 0.0f;
       jnt_cmd_.dq[j] = 0.0f;
       jnt_cmd_.kp[j] = 0.0f;
       jnt_cmd_.kd[j] = 0.0f;
     } else {
-      // High-level (target joint pos) -> Low-level (clip on feedforward tau) -> sim/real robot (PD)
-      jnt_cmd_.q[j]   = output_buf_[i];
-      jnt_cmd_.kp[j]  = stiffness_[i];
-      jnt_cmd_.kd[j]  = damping_[i];
-      jnt_cmd_.dq[j]  = 0.0f;
+      jnt_cmd_.q[j] = out[i];
+      jnt_cmd_.kp[j] = kp[i];
+      jnt_cmd_.kd[j] = kd[i];
+      jnt_cmd_.dq[j] = 0.0f;
       jnt_cmd_.tau[j] = 0.0f;
     }
   }

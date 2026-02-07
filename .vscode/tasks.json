@@ -92,7 +92,7 @@
         "${input:NetworkInterface}",
         "ros2", "run", "legged_rl_deploy", "legged_rl_deploy_node",
         "${input:NetworkInterface}",
-        "${workspaceFolder}/${input:Config Path}/config.yaml"
+        "${workspaceFolder}/${input:Config Path}"
       ],
       "options": { 
         "cwd": "${workspaceFolder}" },

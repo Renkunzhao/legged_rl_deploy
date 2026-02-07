@@ -1,0 +1,76 @@
+# ============================================================
+# Go2 Multi-Policy Master Config
+# ============================================================
+# This file manages multiple RL policies with gamepad-triggered
+# transitions.  Each sub-config is a standard policy config.yaml
+# that also works standalone (backward compatible).
+#
+# Transition trigger format:
+#   "button"       — on_press of that button
+#   "L2+button"    — L2 held + on_press of button
+#
+# Available buttons:
+#   A B X Y  up down left right  L1 R1 R2  start  F1 F2
+# ============================================================
+
+# lowlevel controller (shared across all policies)
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+
+# override lowlevel dt if needed
+ll_dt: 0.005
+
+# clip final torque (shared)
+clip_final_tau: false
+
+# FSM definition
+fsm:
+  # The policy to activate when entering HighController state
+  default: trot
+
+  policies:
+    # ---- velocity (walking / balancing) ----
+    velocity-aba:
+      config: src/legged_rl_deploy/policies/go2/velocity/aba/config.yaml
+      transitions:
+        trot: start
+
+    velocity-mjlab:
+      config: src/legged_rl_deploy/policies/go2/velocity/mjlab/config.yaml
+      transitions:
+        trot: start
+
+    velocity-unitree_rl_lab:
+      config: src/legged_rl_deploy/policies/go2/velocity/unitree_rl_lab/config.yaml
+      transitions:
+        trot: start
+
+    trot:
+      config: src/legged_rl_deploy/policies/go2/trot/config.yaml
+      transitions:
+        velocity-aba: R2 + A
+        velocity-mjlab: R2 + B
+        velocity-unitree_rl_lab: R2 + X
+        hop: R2 + Y
+        legstand: R1 + A
+        handstand: R1 + B
+        spring_jump: R1 + X
+
+    hop:
+      config: src/legged_rl_deploy/policies/go2/hop/config.yaml
+      transitions:
+        trot: start
+
+    legstand:
+      config: src/legged_rl_deploy/policies/go2/legstand/config.yaml
+      transitions:
+        trot: start
+
+    handstand:
+      config: src/legged_rl_deploy/policies/go2/handstand/config.yaml
+      transitions:
+        trot: start
+
+    spring_jump:
+      config: src/legged_rl_deploy/policies/go2/spring_jump/config.yaml
+      transitions:
+        trot: start
