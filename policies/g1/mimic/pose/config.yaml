@@ -88,7 +88,11 @@ policy:
   # ---------------------------------------------------------------------------
   motions:
     fps: 50
-    file: src/legged_rl_deploy/policies/g1/mimic/pose/motion.csv
+    # hardware_order: true
+    # file: src/legged_rl_deploy/policies/g1/mimic/pose/motion.csv
+    hardware_order: false  # ONNX model outputs are in training joint order
+    file: src/legged_rl_deploy/policies/g1/mimic/pose/policy.onnx
+    time_end: 2.94
 
   # ---------------------------------------------------------------------------
   # actions: post-processing of raw network output

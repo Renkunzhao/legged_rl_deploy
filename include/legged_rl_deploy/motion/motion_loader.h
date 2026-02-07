@@ -31,8 +31,9 @@ class MotionLoader
 {
 public:
     MotionLoader(std::string motion_file, float dt = 0.02,
-                 float time_start = 0.0f, float time_end = -1.0f)
-    : dt(dt)
+                 float time_start = 0.0f, float time_end = -1.0f,
+                 bool hardware_order = true)
+    : dt(dt), hardware_order_(hardware_order)
     {
         // Dispatch by file extension
         if (ends_with(motion_file, ".csv")) {
@@ -86,6 +87,10 @@ public:
 
     float timeStart() const { return time_start_; }
     float timeEnd()   const { return time_end_;   }
+
+    /// True when motion data is in URDF/hardware joint order (needs joint_ids_map).
+    /// False when motion data is in training joint order (direct indexing).
+    bool isHardwareOrder() const { return hardware_order_; }
 
     /// Yaw alignment quaternion (set externally during reset)
     Eigen::Quaternionf& yawAlign() { return yaw_align_; }
@@ -209,6 +214,7 @@ private:
     float policy_dt_  = 0.02f;
     size_t step_cnt_  = 0;
     Eigen::Quaternionf yaw_align_ = Eigen::Quaternionf::Identity();
+    bool hardware_order_ = true;
 
     // On-demand ONNX motion evaluator (null for CSV/NPZ)
     std::unique_ptr<IMotionEvaluator> onnx_eval_;

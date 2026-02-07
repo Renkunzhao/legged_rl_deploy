@@ -27,6 +27,7 @@ policy:
   # Reference motion data (independent of policy_dt)
   motions: 
     fps: 60  # sampling rate of the motion capture CSV
+    hardware_order: true  # CSV motion data uses URDF/hardware joint order
     file: src/legged_rl_deploy/policies/g1/mimic/dance_102/G1_Take_102.bvh_60hz.csv
     time_start: 2.8
     time_end: 24.0

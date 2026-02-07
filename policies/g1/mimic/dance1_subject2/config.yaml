@@ -28,6 +28,7 @@ policy:
 
   motions: 
     fps: 50
+    hardware_order: true  # NPZ motion data uses URDF/hardware joint order
     file: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/dance1_subject2.npz
 
   actions:

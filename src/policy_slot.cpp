@@ -51,14 +51,21 @@ void PolicySlot::init() {
 
   // -------- motion loader --------
   if (pnode["motions"]) {
+    if (!pnode["motions"]["hardware_order"]) {
+      throw std::runtime_error(
+          "[PolicySlot:" + name_ + "] motions.hardware_order is required. "
+          "Set true if motion data uses URDF/hardware joint order (e.g. CSV from retarget), "
+          "false if it uses training joint order (e.g. ONNX model output).");
+    }
     const std::string motion_file =
         legged_base::getEnv("WORKSPACE") + "/" +
         pnode["motions"]["file"].as<std::string>();
     const float motion_dt = 1.0f / pnode["motions"]["fps"].as<float>();
     const float time_start = pnode["motions"]["time_start"].as<float>(0.0f);
     const float time_end   = pnode["motions"]["time_end"].as<float>(-1.0f);
+    const bool  hw_order   = pnode["motions"]["hardware_order"].as<bool>();
     motion_ = std::make_unique<MotionLoader>(
-        motion_file, motion_dt, time_start, time_end);
+        motion_file, motion_dt, time_start, time_end, hw_order);
     std::cout << "[PolicySlot:" << name_
               << "] Loaded motion: duration=" << motion_->duration
               << " dt=" << motion_->dt
@@ -107,8 +114,16 @@ void PolicySlot::reset(const LeggedState& state) {
   if (motion_) {
     motion_->reset(policy_dt_);
 
+    // getTorsoQuatFromImuAndWaist expects URDF-ordered joint_pos.
+    Eigen::VectorXf ref_jp = motion_->joint_pos();
+    if (!motion_->isHardwareOrder()) {
+      Eigen::VectorXf urdf_jp(ref_jp.size());
+      for (size_t i = 0; i < joint_ids_map_.size(); ++i)
+        urdf_jp[joint_ids_map_[i]] = ref_jp[i];
+      ref_jp = urdf_jp;
+    }
     const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(
-        motion_->root_quaternion(), motion_->joint_pos());
+        motion_->root_quaternion(), ref_jp);
     const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(
         state.base_quat().cast<float>(),
         state.joint_pos().cast<float>());
@@ -310,18 +325,30 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
       if (!has_motion)
         throw std::runtime_error("[PolicySlot:" + name_ +
                                  "] motion_command requires motion");
+      // hardware_order → need joint_ids_map to reorder URDF→training.
+      // training order → index directly.
+      const bool direct = !motion_->isHardwareOrder();
       for (size_t i = 0; i < robot_model_.nJoints(); ++i) {
-        v[i] = motion_->joint_pos()[joint_ids_map_[i]];
-        v[i + robot_model_.nJoints()] =
-            motion_->joint_vel()[joint_ids_map_[i]];
+        const size_t idx = direct ? i : joint_ids_map_[i];
+        v[i] = motion_->joint_pos()[idx];
+        v[i + robot_model_.nJoints()] = motion_->joint_vel()[idx];
       }
 
     } else if (term.name == "motion_anchor_ori_b") {
       if (!has_motion)
         throw std::runtime_error("[PolicySlot:" + name_ +
                                  "] motion_anchor_ori_b requires motion");
+      // getTorsoQuatFromImuAndWaist expects URDF-ordered joint_pos.
+      // If motion is in training order, reorder to URDF first.
+      Eigen::VectorXf ref_jp = motion_->joint_pos();
+      if (!motion_->isHardwareOrder()) {
+        Eigen::VectorXf urdf_jp(ref_jp.size());
+        for (size_t i = 0; i < joint_ids_map_.size(); ++i)
+          urdf_jp[joint_ids_map_[i]] = ref_jp[i];
+        ref_jp = urdf_jp;
+      }
       const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(
-          motion_->root_quaternion(), motion_->joint_pos());
+          motion_->root_quaternion(), ref_jp);
       const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(
           state.base_quat().cast<float>(),
           state.joint_pos().cast<float>());
