@@ -51,25 +51,17 @@ void OrtPolicyRunner::load(const std::string& model_path, int input_dim, int out
   obs_shape_[1] = static_cast<int64_t>(input_dim_);
   obs_buf_.assign(static_cast<size_t>(input_dim_), 0.0f);
 
-  // Prepare default zero buffers for extra inputs so the model can run
-  // even if the caller hasn't provided them via setExtraInput()
+  // Zero-fill buffers for extra inputs (e.g. time_step) — ignored
+  extra_bufs_.resize(n_in);
+  extra_shapes_.resize(n_in);
   for (size_t i = 0; i < n_in; ++i) {
     if (i == obs_idx_) continue;
-
     auto type_info = session_->GetInputTypeInfo(i);
     auto shape = type_info.GetTensorTypeAndShapeInfo().GetShape();
-    int64_t n = numel(shape);
-
-    extra_defaults_[in_names_[i]].assign(static_cast<size_t>(n), 0.0f);
-    extras_[in_names_[i]] = {extra_defaults_[in_names_[i]].data(), shape};
-
-    std::cout << "[OrtPolicyRunner] Extra input: \"" << in_names_[i]
-              << "\" shape=[";
-    for (size_t j = 0; j < shape.size(); ++j) {
-      if (j) std::cout << ",";
-      std::cout << shape[j];
-    }
-    std::cout << "]" << std::endl;
+    extra_bufs_[i].assign(static_cast<size_t>(numel(shape)), 0.0f);
+    extra_shapes_[i] = shape;
+    std::cout << "[OrtPolicyRunner] Extra input \"" << in_names_[i]
+              << "\" (ignored, zero-filled)" << std::endl;
   }
 
   // ---------- enumerate all outputs ----------
@@ -86,7 +78,7 @@ void OrtPolicyRunner::load(const std::string& model_path, int input_dim, int out
   // First output is the action tensor
   action_idx_ = 0;
 
-  // ---------- self-check: run once and verify output dim ----------
+  // ---------- self-check ----------
   std::vector<Ort::Value> input_tensors;
   input_tensors.reserve(n_in);
   for (size_t i = 0; i < n_in; ++i) {
@@ -95,11 +87,9 @@ void OrtPolicyRunner::load(const std::string& model_path, int input_dim, int out
           mem_, obs_buf_.data(), obs_buf_.size(),
           obs_shape_.data(), obs_shape_.size()));
     } else {
-      auto& ex = extras_[in_names_[i]];
       input_tensors.push_back(Ort::Value::CreateTensor<float>(
-          mem_, const_cast<float*>(ex.data),
-          static_cast<size_t>(numel(ex.shape)),
-          ex.shape.data(), ex.shape.size()));
+          mem_, extra_bufs_[i].data(), extra_bufs_[i].size(),
+          extra_shapes_[i].data(), extra_shapes_[i].size()));
     }
   }
 
@@ -124,17 +114,6 @@ void OrtPolicyRunner::load(const std::string& model_path, int input_dim, int out
   }
 }
 
-void OrtPolicyRunner::setExtraInput(const std::string& name,
-                                    const float* data,
-                                    const std::vector<int64_t>& shape) {
-  auto it = extras_.find(name);
-  if (it != extras_.end()) {
-    it->second.data = data;
-    it->second.shape = shape;
-  }
-  // silently ignore unknown names — models without that input just skip it
-}
-
 void OrtPolicyRunner::infer(const float* input, float* output) {
   if (!session_) throw std::runtime_error("ORT session not loaded");
 
@@ -151,11 +130,9 @@ void OrtPolicyRunner::infer(const float* input, float* output) {
           mem_, obs_buf_.data(), obs_buf_.size(),
           obs_shape_.data(), obs_shape_.size()));
     } else {
-      auto& ex = extras_[in_names_[i]];
       input_tensors.push_back(Ort::Value::CreateTensor<float>(
-          mem_, const_cast<float*>(ex.data),
-          static_cast<size_t>(numel(ex.shape)),
-          ex.shape.data(), ex.shape.size()));
+          mem_, extra_bufs_[i].data(), extra_bufs_[i].size(),
+          extra_shapes_[i].data(), extra_shapes_[i].size()));
     }
   }
 

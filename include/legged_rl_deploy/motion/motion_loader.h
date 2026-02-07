@@ -1,12 +1,31 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <vector>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <iostream>
 #include <Eigen/Dense>
 
 #include "legged_rl_deploy/motion/cnpy.h"
+
+// ---------------------------------------------------------------------------
+// IMotionEvaluator — on-demand motion source (e.g. ONNX model)
+// ---------------------------------------------------------------------------
+struct IMotionEvaluator {
+    virtual ~IMotionEvaluator() = default;
+    /// Evaluate motion outputs at the given time_step (float).
+    virtual void evaluate(float time_step,
+                          Eigen::VectorXf& joint_pos,
+                          Eigen::VectorXf& joint_vel,
+                          Eigen::Quaternionf& root_quat) = 0;
+};
+
+/// Factory: create an ORT-based motion evaluator.
+/// Implemented in motion_onnx_loader.cpp (requires ORT).
+std::unique_ptr<IMotionEvaluator> makeOnnxMotionEvaluator(
+    const std::string& model_path);
 
 class MotionLoader
 {
@@ -15,14 +34,28 @@ public:
                  float time_start = 0.0f, float time_end = -1.0f)
     : dt(dt)
     {
-        // Check if file ends with .csv
-        if (motion_file.length() >= 4 && motion_file.substr(motion_file.length() - 4) == ".csv") {
+        // Dispatch by file extension
+        if (ends_with(motion_file, ".csv")) {
             load_data_from_csv(motion_file);
+        } else if (ends_with(motion_file, ".onnx")) {
+            onnx_eval_ = makeOnnxMotionEvaluator(motion_file);
         } else {
             load_data_from_npz(motion_file);
         }
-        num_frames = dof_positions.size();
-        duration = num_frames * dt;
+
+        if (onnx_eval_) {
+            // On-demand mode: no pre-computed frames.
+            // Duration is effectively unbounded; use time_end from config
+            // to control when the motion finishes.
+            num_frames = 0;
+            duration   = (time_end > 0.0f) ? time_end : 1e6f;
+            std::cout << "[MotionLoader] ONNX on-demand mode"
+                      << (time_end > 0.0f ? " (time_end=" + std::to_string(time_end) + ")" : "")
+                      << std::endl;
+        } else {
+            num_frames = dof_positions.size();
+            duration   = num_frames * dt;
+        }
 
         time_start_ = std::clamp(time_start, 0.0f, duration);
         time_end_   = (time_end < 0.0f) ? duration : std::clamp(time_end, 0.0f, duration);
@@ -133,23 +166,31 @@ public:
 
     void update(float time)
     {
-        float phase = std::clamp(time, 0.0f, duration);
-        float f = phase / dt;
-        frame = static_cast<int>(std::floor(f));
-        frame = std::min(frame, num_frames - 1);
+        if (onnx_eval_) {
+            // On-demand: pass float time_step = time / dt (step index as float)
+            float time_step = std::max(0.0f, time) / dt;
+            onnx_eval_->evaluate(time_step,
+                                 onnx_joint_pos_, onnx_joint_vel_,
+                                 onnx_root_quat_);
+        } else {
+            float phase = std::clamp(time, 0.0f, duration);
+            float f = phase / dt;
+            frame = static_cast<int>(std::floor(f));
+            frame = std::min(frame, num_frames - 1);
+        }
     }
 
     Eigen::VectorXf root_position() {
-        return root_positions[frame];
+        return onnx_eval_ ? Eigen::VectorXf::Zero(3) : root_positions[frame];
     }
     Eigen::Quaternionf root_quaternion() {
-        return root_quaternions[frame];
+        return onnx_eval_ ? onnx_root_quat_ : root_quaternions[frame];
     }
     Eigen::VectorXf joint_pos() {
-        return dof_positions[frame];
+        return onnx_eval_ ? onnx_joint_pos_ : dof_positions[frame];
     }
     Eigen::VectorXf joint_vel() {
-        return dof_velocities[frame];
+        return onnx_eval_ ? onnx_joint_vel_ : dof_velocities[frame];
     }
 
     float dt = 0.02f;
@@ -168,6 +209,17 @@ private:
     float policy_dt_  = 0.02f;
     size_t step_cnt_  = 0;
     Eigen::Quaternionf yaw_align_ = Eigen::Quaternionf::Identity();
+
+    // On-demand ONNX motion evaluator (null for CSV/NPZ)
+    std::unique_ptr<IMotionEvaluator> onnx_eval_;
+    Eigen::VectorXf onnx_joint_pos_;
+    Eigen::VectorXf onnx_joint_vel_;
+    Eigen::Quaternionf onnx_root_quat_ = Eigen::Quaternionf::Identity();
+
+    static bool ends_with(const std::string& s, const std::string& suffix) {
+        return s.size() >= suffix.size() &&
+               s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+    }
 
     std::vector<std::vector<float>> load_csv(const std::string& filename)
     {

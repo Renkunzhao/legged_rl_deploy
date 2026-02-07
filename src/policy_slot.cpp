@@ -103,8 +103,6 @@ void PolicySlot::reset(const LeggedState& state) {
   std::fill(output_buf_.begin(), output_buf_.end(), 0.0f);
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
   obs_hist_.clear();
-  policy_step_cnt_ = 0;
-  time_step_ = 0.0f;
 
   if (motion_) {
     motion_->reset(policy_dt_);
@@ -213,6 +211,9 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
     motion_->step();
   }
 
+  // Motion reference
+  const bool has_motion = (motion_ != nullptr);
+
   for (const auto& term : obs_terms_) {
     std::vector<float> v(term.dim, 0.0f);
 
@@ -306,7 +307,7 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
       v = last_action_;
 
     } else if (term.name == "motion_command") {
-      if (!motion_)
+      if (!has_motion)
         throw std::runtime_error("[PolicySlot:" + name_ +
                                  "] motion_command requires motion");
       for (size_t i = 0; i < robot_model_.nJoints(); ++i) {
@@ -316,7 +317,7 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
       }
 
     } else if (term.name == "motion_anchor_ori_b") {
-      if (!motion_)
+      if (!has_motion)
         throw std::runtime_error("[PolicySlot:" + name_ +
                                  "] motion_anchor_ori_b requires motion");
       const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(
