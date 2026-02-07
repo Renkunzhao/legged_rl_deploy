@@ -4,6 +4,7 @@ llc_config_file: src/unitree_lowlevel/config/g1.yaml
 # Mujoco deploy.py: model.opt.timestep = 0.005, decimation=4 -> policy_dt=0.02
 ll_dt: 0.005
 
+# Training repo: unitree_rl_mjlab
 policy:
   backend: ort
   model_path: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/policy.onnx

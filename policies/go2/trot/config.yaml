@@ -4,6 +4,7 @@ llc_config_file:
 
 ll_dt: 0.005  # override in unitree_lowlevel
 
+# Training repo: My_unitree_go2_gym
 policy:
   # backend: libtorch
   # model_path: src/legged_rl_deploy/policies/go2/trot/policy.pt

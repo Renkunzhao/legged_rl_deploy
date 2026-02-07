@@ -4,6 +4,7 @@ llc_config_file:
 
 clip_final_tau: false
 
+# Training repo: unitree_rl_lab
 # TorchScript policy for C++ inference
 policy:
   # backend: libtorch

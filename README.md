@@ -8,13 +8,36 @@ A deployment framework for reinforcement learning (RL) policies on Unitree Go2 a
 - Support for TorchScript and ONNX Runtime inference
 - Multiple pretrained policies included
 
-### Pretrained Policy Sources
+### Policy sources
 
-| Source | Policies |
-|--------|----------|
-| [unitree_rl_lab](https://github.com/unitreerobotics/unitree_rl_lab) | `go2_velocity_unitree` |
-| [My_unitree_go2_gym](https://github.com/yusongmin1/My_unitree_go2_gym) | `go2_jump`, `go2_handstand`, `go2_legstand`, `go2_spring_jump`, `go2_trot` |
-| [mjlab](https://github.com/mujocolab/mjlab) | `go2_velocity_mjlab` |
+```
+policies/
+├── go2/
+│   ├── velocity/
+│   │   ├── unitree_rl_lab/    # unitree_rl_lab
+│   │   ├── mjlab/             # mjlab
+│   │   └── aba/               # mjlab
+│   ├── hop/                   # My_unitree_go2_gym
+│   ├── trot/                  # My_unitree_go2_gym
+│   ├── handstand/             # My_unitree_go2_gym
+│   ├── legstand/              # My_unitree_go2_gym
+│   └── spring_jump/           # My_unitree_go2_gym
+└── g1/
+    ├── velocity/
+    │   └── unitree_rl_mjlab/  # unitree_rl_mjlab
+    └── mimic/
+        ├── gangnam_style/     # unitree_rl_lab
+        ├── dance_102/         # unitree_rl_lab
+        ├── dance1_subject2/   # unitree_rl_mjlab
+        └── whole_body_tracking/ (WIP)
+```
+
+| Source | Link |
+|--------|------|
+| unitree_rl_lab | [github.com/unitreerobotics/unitree_rl_lab](https://github.com/unitreerobotics/unitree_rl_lab) |
+| My_unitree_go2_gym | [github.com/yusongmin1/My_unitree_go2_gym](https://github.com/yusongmin1/My_unitree_go2_gym) |
+| mjlab | [github.com/mujocolab/mjlab](https://github.com/mujocolab/mjlab) |
+| unitree_rl_mjlab | [github.com/mujocolab/unitree_rl_mjlab](https://github.com/mujocolab/unitree_rl_mjlab) |
 
 *Thanks to the authors of these projects for their contributions.*
 

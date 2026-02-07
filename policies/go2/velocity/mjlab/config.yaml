@@ -7,6 +7,7 @@ clip_final_tau: false
 
 # mjlab commit: 468f283d4868019c012980ac5c9daf773103622e
 # TorchScript policy for C++ inference
+# Training repo: mjlab
 policy:
   # backend: libtorch
   # model_path: src/legged_rl_deploy/policies/go2/velocity/mjlab/polity.pt
