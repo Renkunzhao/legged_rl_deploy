@@ -29,7 +29,8 @@ policies/
         ├── gangnam_style/     # unitree_rl_lab
         ├── dance_102/         # unitree_rl_lab
         ├── dance1_subject2/   # unitree_rl_mjlab
-        └── whole_body_tracking/ (WIP)
+        └── pose/              # whole_body_tracking
+        └── LAFAN1_Retargeting # whole_body_tracking
 ```
 
 | Source | Link |
