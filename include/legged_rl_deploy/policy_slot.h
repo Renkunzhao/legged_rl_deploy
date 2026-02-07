@@ -97,6 +97,10 @@ private:
 
   // -------- mimic motion --------
   std::unique_ptr<MotionLoader> motion_;
+
+  // -------- extra model inputs (e.g. time_step for some ONNX models) --------
+  float time_step_{0.0f};
+  size_t policy_step_cnt_{0};
 };
 
 } // namespace legged_rl_deploy

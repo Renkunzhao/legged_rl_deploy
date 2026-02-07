@@ -103,6 +103,8 @@ void PolicySlot::reset(const LeggedState& state) {
   std::fill(output_buf_.begin(), output_buf_.end(), 0.0f);
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
   obs_hist_.clear();
+  policy_step_cnt_ = 0;
+  time_step_ = 0.0f;
 
   if (motion_) {
     motion_->reset(policy_dt_);
