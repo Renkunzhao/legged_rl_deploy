@@ -1,6 +1,5 @@
 #include "legged_rl_deploy/legged_rl_deploy.h"
 
-#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <memory>

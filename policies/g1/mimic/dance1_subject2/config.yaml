@@ -6,7 +6,7 @@ ll_dt: 0.005
 
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_mjlab/policy.onnx
+  model_path: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/policy.onnx
   input_dim: 154
   output_dim: 29
   policy_dt: 0.02
@@ -21,7 +21,7 @@ policy:
 
   motions: 
     dt: 0.02
-    file: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_mjlab/dance1_subject2.npz
+    file: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/dance1_subject2.npz
 
   actions:
     JointPositionAction:

@@ -1,0 +1,56 @@
+# lowlevel controller
+llc_config_file: src/unitree_lowlevel/config/g1.yaml
+
+# Mujoco deploy.py: model.opt.timestep = 0.005, decimation=4 -> policy_dt=0.02
+ll_dt: 0.005
+
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/g1/mimic/gangnam_style/policy.onnx
+  input_dim: 154
+  output_dim: 29
+  policy_dt: 0.02
+
+  joint_ids_map: [0, 6, 12, 1, 7, 13, 2, 8, 14, 3, 9, 15, 22, 4, 10, 16, 23, 5, 11,
+    17, 24, 18, 25, 19, 26, 20, 27, 21, 28]
+  stiffness: [40.2, 40.2, 40.2, 99.1, 99.1, 28.5, 40.2, 40.2, 28.5, 99.1, 99.1, 14.3,
+    14.3, 28.5, 28.5, 14.3, 14.3, 28.5, 28.5, 14.3, 14.3, 14.3, 14.3, 14.3, 14.3, 16.8,
+    16.8, 16.8, 16.8]
+  damping: [2.56, 2.56, 2.56, 6.31, 6.31, 1.81, 2.56, 2.56, 1.81, 6.31, 6.31, 0.907,
+    0.907, 1.81, 1.81, 0.907, 0.907, 1.81, 1.81, 0.907, 0.907, 0.907, 0.907, 0.907, 0.907,
+    1.07, 1.07, 1.07, 1.07]
+
+  commands: {}
+
+  motions: 
+    dt: 0.02
+    file: src/legged_rl_deploy/policies/g1/mimic/gangnam_style/G1_gangnam_style_V01.bvh_60hz.csv
+
+  actions:
+    JointPositionAction:
+      process_order: [scale, offset]
+      scale: [0.548, 0.548, 0.548, 0.351, 0.351, 0.439, 0.548, 0.548, 0.439, 0.351,
+        0.351, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439, 0.439,
+        0.439, 0.439, 0.439, 0.439, 0.0745, 0.0745, 0.0745, 0.0745]
+      offset: [-0.302, -0.319, 0.00124, 0.000442, 0.00489, 0.00191, 0.00929, 0.00796,
+        0.00546, 0.672, 0.67, 0.2, 0.202, -0.368, -0.355, 0.194, -0.196, -0.00644, 0.00976,
+        0.00258, -0.00029, 0.605, 0.596, 0.00818, 0.00322, 0.00293, -0.00339, -0.00955,
+        -0.00715]
+
+  observations:
+    stack:
+      length: 1
+      order: newest_first
+    terms:
+      motion_command:
+      motion_anchor_ori_b:
+      base_ang_vel_B:
+      joint_pos:
+        process_order: [offset]
+        offset: [0.302, 0.319, -0.00124, -0.000442, -0.00489, -0.00191, -0.00929, -0.00796,
+          -0.00546, -0.672, -0.67, -0.2, -0.202, 0.368, 0.355, -0.194, 0.196, 0.00644, -0.00976,
+          -0.00258, 0.00029, -0.605, -0.596, -0.00818, -0.00322, -0.00293, 0.00339, 0.00955,
+          0.00715]
+      joint_vel:
+      last_action:
+

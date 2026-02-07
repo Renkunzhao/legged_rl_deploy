@@ -1,6 +1,9 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
 #include <Eigen/Dense>
 
 #include "legged_rl_deploy/motion/cnpy.h"
@@ -11,7 +14,12 @@ public:
     MotionLoader(std::string motion_file, float dt = 0.02)
     : dt(dt)
     {
-        load_data_from_npz(motion_file);
+        // Check if file ends with .csv
+        if (motion_file.length() >= 4 && motion_file.substr(motion_file.length() - 4) == ".csv") {
+            load_data_from_csv(motion_file);
+        } else {
+            load_data_from_npz(motion_file);
+        }
         num_frames = dof_positions.size();
         duration = num_frames * dt;
 
@@ -65,6 +73,32 @@ public:
         }
     }
 
+    void load_data_from_csv(const std::string& motion_file)
+    {
+        auto data = load_csv(motion_file);
+        
+        root_positions.clear();
+        root_quaternions.clear();
+        dof_positions.clear();
+        dof_velocities.clear();
+
+        const size_t num_frames_csv = data.size();
+        
+        for(size_t i = 0; i < num_frames_csv; ++i)
+        {
+            if (data[i].size() < 7) {
+                throw std::runtime_error("CSV row " + std::to_string(i) + " has insufficient columns (expected at least 7)");
+            }
+            
+            // CSV format: [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z, quat_w, joint_1, joint_2, ...]
+            root_positions.push_back(Eigen::Vector3f(data[i][0], data[i][1], data[i][2]));
+            root_quaternions.push_back(Eigen::Quaternionf(data[i][6], data[i][3], data[i][4], data[i][5]));
+            dof_positions.push_back(Eigen::VectorXf::Map(data[i].data() + 7, data[i].size() - 7));
+        }
+        
+        dof_velocities = compute_raw_derivative(dof_positions);
+    }
+
     void update(float time)
     {
         float phase = std::clamp(time, 0.0f, duration);
@@ -95,4 +129,51 @@ public:
     std::vector<Eigen::Quaternionf> root_quaternions;
     std::vector<Eigen::VectorXf> dof_positions;
     std::vector<Eigen::VectorXf> dof_velocities;
+
+private:
+    std::vector<std::vector<float>> load_csv(const std::string& filename)
+    {
+        std::vector<std::vector<float>> data;
+        std::ifstream file(filename);
+        if (!file.is_open())
+        {
+            throw std::runtime_error("Error opening file: " + filename);
+        }
+
+        std::string line;
+        while (std::getline(file, line))
+        {
+            std::vector<float> row;
+            std::stringstream ss(line);
+            std::string value;
+            while (std::getline(ss, value, ','))
+            {
+                try
+                {
+                    row.push_back(std::stof(value));
+                }
+                catch (const std::invalid_argument& e)
+                {
+                    throw std::runtime_error("Invalid value in CSV: " + value);
+                }
+            }
+            if (!row.empty()) {
+                data.push_back(row);
+            }
+        }
+        file.close();
+        return data;
+    }
+
+    std::vector<Eigen::VectorXf> compute_raw_derivative(const std::vector<Eigen::VectorXf>& data)
+    {
+        std::vector<Eigen::VectorXf> derivative;
+        for(size_t i = 0; i < data.size() - 1; ++i) {
+            derivative.push_back((data[i + 1] - data[i]) / dt);
+        }
+        if (!data.empty()) {
+            derivative.push_back(derivative.empty() ? Eigen::VectorXf::Zero(data[0].size()) : derivative.back());
+        }
+        return derivative;
+    }
 };
