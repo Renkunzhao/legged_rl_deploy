@@ -32,10 +32,21 @@ fsm:
     velocity:
       config: src/legged_rl_deploy/policies/g1/velocity/unitree_rl_mjlab/config.yaml
       transitions:
-        mimic_dance: R1 + A
+        dance1_subject2: R1 + A
+        dance_102: R1 + B
+        gangnam_style: R1 + X
 
-    # ---- mimic dance ----
-    mimic_dance:
-      config: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_mjlab/config.yaml
+    dance1_subject2:
+      config: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/config.yaml
+      transitions:
+        velocity: R2 + A
+
+    dance_102:
+      config: src/legged_rl_deploy/policies/g1/mimic/dance_102/config.yaml
+      transitions:
+        velocity: R2 + A
+
+    gangnam_style:
+      config: src/legged_rl_deploy/policies/g1/mimic/gangnam_style/config.yaml
       transitions:
         velocity: R2 + A

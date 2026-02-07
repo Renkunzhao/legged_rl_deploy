@@ -20,7 +20,7 @@ policy:
   commands: {}
 
   motions: 
-    dt: 0.02
+    fps: 50
     file: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/dance1_subject2.npz
 
   actions:

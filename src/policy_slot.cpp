@@ -54,11 +54,16 @@ void PolicySlot::init() {
     const std::string motion_file =
         legged_base::getEnv("WORKSPACE") + "/" +
         pnode["motions"]["file"].as<std::string>();
+    const float motion_dt = 1.0f / pnode["motions"]["fps"].as<float>();
+    const float time_start = pnode["motions"]["time_start"].as<float>(0.0f);
+    const float time_end   = pnode["motions"]["time_end"].as<float>(-1.0f);
     motion_ = std::make_unique<MotionLoader>(
-        motion_file, pnode["motions"]["dt"].as<float>());
+        motion_file, motion_dt, time_start, time_end);
     std::cout << "[PolicySlot:" << name_
               << "] Loaded motion: duration=" << motion_->duration
-              << " dt=" << motion_->dt << std::endl;
+              << " dt=" << motion_->dt
+              << " range=[" << motion_->timeStart()
+              << ", " << motion_->timeEnd() << "]" << std::endl;
   }
 
   // -------- commands --------
@@ -100,8 +105,7 @@ void PolicySlot::reset(const LeggedState& state) {
   obs_hist_.clear();
 
   if (motion_) {
-    motion_cnt_ = 0;
-    motion_->update(motion_time_start_);
+    motion_->reset(policy_dt_);
 
     const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(
         motion_->root_quaternion(), motion_->joint_pos());
@@ -113,7 +117,7 @@ void PolicySlot::reset(const LeggedState& state) {
         legged_base::extractYawQuaternion(ref_q).toRotationMatrix();
     const Eigen::Matrix3f real_yaw =
         legged_base::extractYawQuaternion(real_q).toRotationMatrix();
-    motion_yaw_align_ = real_yaw * ref_yaw.transpose();
+    motion_->yawAlign() = Eigen::Quaternionf(real_yaw * ref_yaw.transpose());
   }
 
   std::cout << "[PolicySlot:" << name_ << "] reset." << std::endl;
@@ -204,10 +208,7 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
   std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
 
   if (motion_) {
-    const float t =
-        static_cast<float>(motion_cnt_ * policy_dt_) + motion_time_start_;
-    motion_->update(t);
-    motion_cnt_++;
+    motion_->step();
   }
 
   for (const auto& term : obs_terms_) {
@@ -321,7 +322,7 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
       const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(
           state.base_quat().cast<float>(),
           state.joint_pos().cast<float>());
-      const auto rot_ = (motion_yaw_align_ * ref_q).conjugate() * real_q;
+      const auto rot_ = (motion_->yawAlign() * ref_q).conjugate() * real_q;
       const Eigen::Matrix3f rot = rot_.toRotationMatrix().transpose();
       v[0] = rot(0, 0); v[1] = rot(0, 1);
       v[2] = rot(1, 0); v[3] = rot(1, 1);

@@ -11,7 +11,8 @@
 class MotionLoader
 {
 public:
-    MotionLoader(std::string motion_file, float dt = 0.02)
+    MotionLoader(std::string motion_file, float dt = 0.02,
+                 float time_start = 0.0f, float time_end = -1.0f)
     : dt(dt)
     {
         // Check if file ends with .csv
@@ -23,8 +24,39 @@ public:
         num_frames = dof_positions.size();
         duration = num_frames * dt;
 
-        update(0.0f);
+        time_start_ = std::clamp(time_start, 0.0f, duration);
+        time_end_   = (time_end < 0.0f) ? duration : std::clamp(time_end, 0.0f, duration);
+
+        update(time_start_);
     }
+
+    /// Reset playback state (call at policy reset)
+    void reset(float policy_dt) {
+        policy_dt_ = policy_dt;
+        step_cnt_  = 0;
+        yaw_align_ = Eigen::Quaternionf::Identity();
+        update(time_start_);
+    }
+
+    /// Advance one policy step
+    void step() {
+        step_cnt_++;
+        const float t = step_cnt_ * policy_dt_ + time_start_;
+        update(t);
+    }
+
+    /// Whether the motion has reached time_end
+    bool finished() const {
+        const float t = step_cnt_ * policy_dt_ + time_start_;
+        return t >= time_end_;
+    }
+
+    float timeStart() const { return time_start_; }
+    float timeEnd()   const { return time_end_;   }
+
+    /// Yaw alignment quaternion (set externally during reset)
+    Eigen::Quaternionf& yawAlign() { return yaw_align_; }
+    const Eigen::Quaternionf& yawAlign() const { return yaw_align_; }
 
     void load_data_from_npz(const std::string& motion_file)
     {
@@ -131,6 +163,12 @@ public:
     std::vector<Eigen::VectorXf> dof_velocities;
 
 private:
+    float time_start_ = 0.0f;
+    float time_end_   = 0.0f;
+    float policy_dt_  = 0.02f;
+    size_t step_cnt_  = 0;
+    Eigen::Quaternionf yaw_align_ = Eigen::Quaternionf::Identity();
+
     std::vector<std::vector<float>> load_csv(const std::string& filename)
     {
         std::vector<std::vector<float>> data;

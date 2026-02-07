@@ -97,9 +97,6 @@ private:
 
   // -------- mimic motion --------
   std::unique_ptr<MotionLoader> motion_;
-  size_t motion_cnt_ = 0;
-  float motion_time_start_ = 0.0f;
-  Eigen::Quaternionf motion_yaw_align_ = Eigen::Quaternionf::Identity();
 };
 
 } // namespace legged_rl_deploy
