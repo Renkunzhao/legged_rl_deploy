@@ -24,14 +24,6 @@ policy:
 
   commands: {}
 
-  # Reference motion data (independent of policy_dt)
-  motions: 
-    fps: 60  # sampling rate of the motion capture CSV
-    hardware_order: true  # CSV motion data uses URDF/hardware joint order
-    file: src/legged_rl_deploy/policies/g1/mimic/dance_102/G1_Take_102.bvh_60hz.csv
-    time_start: 2.8
-    time_end: 24.0
-
   actions:
     JointPositionAction:
       process_order: [scale, offset]
@@ -48,8 +40,17 @@ policy:
       length: 1
       order: newest_first
     terms:
-      motion_command:
-      motion_anchor_ori_b:
+      mimic:
+        params:
+          source: local
+          dim: 64
+          terms: [joint_pos, joint_vel, motion_anchor_ori_b]
+          local:
+            file: src/legged_rl_deploy/policies/g1/mimic/dance_102/G1_Take_102.bvh_60hz.csv
+            fps: 60
+            hardware_order: true
+            time_start: 2.8
+            time_end: 24.0
       base_ang_vel_B:
       joint_pos:
         process_order: [offset]
@@ -59,4 +60,3 @@ policy:
           0.00715]
       joint_vel:
       last_action:
-

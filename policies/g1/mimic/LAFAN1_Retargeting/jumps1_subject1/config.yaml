@@ -81,20 +81,6 @@ policy:
   commands: {}
 
   # ---------------------------------------------------------------------------
-  # motions: reference motion data
-  # [SOURCE] commands.py → MotionCommand → MotionLoader reads .npz
-  # npz keys: joint_pos, joint_vel, body_pos_w, body_quat_w, fps, ...
-  # [CHECK] Verify the correct .npz file path for your deployment
-  # ---------------------------------------------------------------------------
-  motions:
-    fps: 50
-    # hardware_order: true
-    # file: src/legged_rl_deploy/policies/g1/mimic/pose/motion.csv
-    hardware_order: false  # ONNX model outputs are in training joint order
-    file: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
-    time_start: 2
-
-  # ---------------------------------------------------------------------------
   # actions: post-processing of raw network output
   # [SOURCE] isaaclab/.../joint_actions.py: target = raw * scale + offset
   #          where offset = default_joint_pos (use_default_offset=True)
@@ -115,10 +101,9 @@ policy:
 
   # ---------------------------------------------------------------------------
   # observations: assembled by PolicySlot::assembleObsFrame()
-  # [SOURCE] ONNX metadata: observation_names =
-  #   command(58), motion_anchor_ori_b(6), base_ang_vel(3),
-  #   joint_pos(29), joint_vel(29), actions(29)
-  # Total: 58 + 6 + 3 + 29 + 29 + 29 = 154
+  # [SOURCE] ONNX metadata style:
+  #   mimic(joint_pos+joint_vel+motion_anchor_ori_b)=64, base_ang_vel(3),
+  #   joint_pos(29), joint_vel(29), actions(29) => Total 154
   #
   # NOTE: G1FlatWoStateEstimationEnvCfg removes:
   #   - motion_anchor_pos_b (set to None in flat_env_cfg.py)
@@ -129,19 +114,16 @@ policy:
       length: 1
       order: newest_first
     terms:
-      # ── motion_command (dim=58) ──
-      # [SOURCE] commands.py: MotionCommand.command = cat(joint_pos[t], joint_vel[t])
-      #          = 29 joint_pos + 29 joint_vel from reference motion at current phase
-      # ONNX metadata name: "command"  →  deploy C++ term: "motion_command"
-      motion_command:
-
-      # ── motion_anchor_ori_b (dim=6) ──
-      # [SOURCE] observations.py: subtract_frame_transforms(robot_torso, motion_torso)
-      #          → quat → matrix_from_quat[:,:2].reshape(-1) → 6D rotation repr
-      # Deploy: getTorsoQuatFromImuAndWaist (IMU on pelvis + waist joints)
-      #         then q_motion_inv * q_robot → rot_mat.transpose().leftCols(2).flatten
-      # [VERIFIED] Deploy matches training (transpose compensates inverted quat order)
-      motion_anchor_ori_b:
+      mimic:
+        params:
+          source: local
+          dim: 64
+          terms: [joint_pos, joint_vel, motion_anchor_ori_b]
+          local:
+            file: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
+            fps: 50
+            hardware_order: false
+            time_start: 2
 
       # ── base_ang_vel_B (dim=3) ──
       # [SOURCE] isaaclab mdp: base_ang_vel() = root angular velocity in body frame

@@ -1,0 +1,119 @@
+# =============================================================================
+# Deploy config.yaml for G1 Mimic policy (legged_rl_deploy)
+# Based on server_low_level_g1_sim.py and auto-generated config
+# Matches IsaacLab training obs/action semantics and ordering
+# =============================================================================
+
+# lowlevel controller
+llc_config_file: src/unitree_lowlevel/config/g1.yaml
+
+# Low-level loop dt (seconds)
+ll_dt: 0.005
+
+# Use position targets (q, kp, kd) rather than final torque clipping path
+clip_final_tau: true
+
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
+  # ONNX IO shapes
+  input_dim: 1432
+  output_dim: 29
+  policy_dt: 0.01
+
+  # training-index → URDF/hardware-index
+  joint_ids_map: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28]
+
+  # PD gains (training order) used for low-level position targets
+  stiffness: [                
+    100, 100, 100, 150, 40, 40,
+    100, 100, 100, 150, 40, 40,
+    150, 150, 150,
+    40, 40, 40, 40, 4.0, 4.0, 4.0,
+    40, 40, 40, 40, 4.0, 4.0, 4.0
+  ]
+
+  damping:   [ 
+    2, 2, 2, 4, 2, 2,
+    2, 2, 2, 4, 2, 2,
+    4, 4, 4,
+    5, 5, 5, 5, 0.2, 0.2, 0.2,
+    5, 5, 5, 5, 0.2, 0.2, 0.2
+  ]
+
+  torque_limits:  [
+    100, 100, 100, 150, 40, 40,
+    100, 100, 100, 150, 40, 40,
+    150, 150, 150,
+    40, 40, 40, 40, 4.0, 4.0, 4.0,
+    40, 40, 40, 40, 4.0, 4.0, 4.0
+  ]
+
+  # No gamepad commands for mimic tracking
+  commands: {}
+
+  # Reference motion source (used by motion_command and motion_anchor_ori_b)
+  # MotionLoader supports: .npz, .csv, and .onnx (on-demand)
+  motions:
+    # fps: 50
+    # hardware_order: false    # ONNX outputs are in training joint order
+    # file: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
+    # time_start: 2
+
+  # Post-process raw network output a: a' = clip(a, min,max) * scale + offset
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -10.0
+      max:  10.0
+      # action_scale from ONNX metadata (training order)
+      scale:  0.5
+      # default_joint_pos from ONNX metadata (training order)
+      offset: [               
+        -0.2, 0.0, 0.0, 0.4, -0.2, 0.0,  # left leg (6)
+        -0.2, 0.0, 0.0, 0.4, -0.2, 0.0,  # right leg (6)
+        0.0, 0.0, 0.0, # torso (3)
+        0.0, 0.4, 0.0, 1.2, 0.0, 0.0, 0.0, # left arm (7)
+        0.0, -0.4, 0.0, 1.2, 0.0, 0.0, 0.0, # right arm (7)
+      ]
+
+  # Observations: stacked = 11 frames, newest_first order; dims must sum to 1432
+  observations:
+    stack:
+      length: 11
+      order: newest_first
+    terms:
+      # 1432-dim: [mimic (6+29),  proprio (3+2+3*29))] * stack length (11) + mimic (6+29)
+      # [obs_now, obs_stack(oldest first), mimic]
+      redis:
+
+      base_ang_vel_B:
+        process_order: [scale]
+        scale:  0.25
+
+      roll_pitch:
+
+      # 29-dim: joint_pos_rel = joint_pos + offset, where offset = -default_joint_pos
+      joint_pos:
+        process_order: [offset]
+        offset: [         
+          0.2, 0.0, 0.0, -0.4, 0.2, 0.0,  # left leg (6) negated
+          0.2, 0.0, 0.0, -0.4, 0.2, 0.0,  # right leg (6) negated
+          0.0, 0.0, 0.0, # torso (3)
+          0.0, -0.4, 0.0, -1.2, 0.0, 0.0, 0.0, # left arm (7) negated
+          0.0, 0.4, 0.0, -1.2, 0.0, 0.0, 0.0,  # right arm (7) negated
+        ]
+
+      # 29-dim: joint_vel (no extra processing)
+      joint_vel:
+        process_order: [scale]
+        scale: [         
+          0.05, 0.05, 0.05, 0.05, 0., 0.0,  # left leg (6) negated
+          0.05, 0.05, 0.05, 0.05, 0., 0.0,  # right leg (6) negated
+          0.05, 0.05, 0.05, # torso (3)
+          0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,  # left arm (7) negated
+          0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,  # right arm (7) negated
+        ]
+
+      # 29-dim: last raw network action (before scale/offset)
+      last_action:

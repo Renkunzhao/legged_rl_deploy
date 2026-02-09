@@ -38,6 +38,8 @@ add_library(${PROJECT_NAME}
     src/policy_slot.cpp
     src/legged_rl_deploy.cpp
     src/motion/cnpy.cpp
+    src/motion/local_mimic_adapter.cpp
+    src/motion/redis_mimic_adapter.cpp
     src/motion/motion_onnx_loader.cpp
 )
 
@@ -83,6 +85,20 @@ if(EXISTS "${ORT_INC}/onnxruntime_cxx_api.h" AND EXISTS "${ORT_LIB}")
   target_link_options(${PROJECT_NAME} PUBLIC "-Wl,-rpath,${ORT_ROOT}/lib")
 else()
   message(STATUS "ORT not found in ${ORT_ROOT} (skip ORT)")
+endif()
+
+##############################
+# 4.3️⃣ 绑定 hiredis（可选）
+##############################
+find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h)
+find_library(HIREDIS_LIBRARY hiredis)
+if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
+  message(STATUS "Found hiredis")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE USE_HIREDIS)
+  target_include_directories(${PROJECT_NAME} PRIVATE ${HIREDIS_INCLUDE_DIR})
+  target_link_libraries(${PROJECT_NAME} PUBLIC ${HIREDIS_LIBRARY})
+else()
+  message(STATUS "hiredis not found (redis mimic source disabled)")
 endif()
 
 

@@ -26,11 +26,6 @@ policy:
   
   commands: {}
 
-  motions: 
-    fps: 50
-    hardware_order: true  # NPZ motion data uses URDF/hardware joint order
-    file: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/dance1_subject2.npz
-
   actions:
     JointPositionAction:
       process_order: [scale, offset]
@@ -50,9 +45,15 @@ policy:
       length: 1
       order: newest_first
     terms:
-      # 29*2 + 6 + 3 + 29 + 29 + 29 = 130
-      motion_command:
-      motion_anchor_ori_b:
+      mimic:
+        params:
+          source: local
+          dim: 64
+          terms: [joint_pos, joint_vel, motion_anchor_ori_b]
+          local:
+            file: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/dance1_subject2.npz
+            fps: 50
+            hardware_order: true
       base_ang_vel_B:
       joint_pos:
         process_order: [offset]
