@@ -78,6 +78,11 @@ source src/unitree_lowlevel/scripts/setup.sh <network-interface> $ROS_DISTRO
 ros2 run legged_rl_deploy legged_rl_deploy_node $NetworkInterface $WORKSPACE/src/legged_rl_deploy/config/go2-trot.yaml
 ```
 
+### TeleOP
+```bash
+sudo apt install -y libhiredis-dev
+```
+
 #### Troubleshooting
 
 **CMake CUDA Dialect Error:**

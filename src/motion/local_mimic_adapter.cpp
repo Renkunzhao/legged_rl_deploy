@@ -9,6 +9,7 @@
 
 #include "legged_rl_deploy/motion/cnpy.h"
 #include <legged_base/math/eigen_utils.hpp>
+#include <legged_base/math/rotation_euler_zyx.hpp>
 #include <unitree_lowlevel/adapter/g1_adapter.hpp>
 
 namespace legged_rl_deploy {

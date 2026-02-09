@@ -15,7 +15,7 @@ clip_final_tau: true
 
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
+  model_path: src/legged_rl_deploy/policies/g1/mimic/TWIST2/twist2_1017_20k.onnx
   # ONNX IO shapes
   input_dim: 1432
   output_dim: 29
@@ -51,14 +51,6 @@ policy:
 
   # No gamepad commands for mimic tracking
   commands: {}
-
-  # Reference motion source (used by motion_command and motion_anchor_ori_b)
-  # MotionLoader supports: .npz, .csv, and .onnx (on-demand)
-  motions:
-    # fps: 50
-    # hardware_order: false    # ONNX outputs are in training joint order
-    # file: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
-    # time_start: 2
 
   # Post-process raw network output a: a' = clip(a, min,max) * scale + offset
   actions:
@@ -117,3 +109,13 @@ policy:
 
       # 29-dim: last raw network action (before scale/offset)
       last_action:
+
+  layout:
+    blocks:
+      - kind: current_frame
+      - kind: history_frame
+        length: 10
+        order: oldest_first
+        include_current: false
+      - kind: current_terms
+        terms: [mimic]

@@ -5,6 +5,10 @@
 
 #include "legged_rl_deploy/motion/mimic_source.h"
 
+#ifdef USE_HIREDIS
+struct redisContext;
+#endif
+
 namespace legged_rl_deploy {
 
 class RedisMimicAdapter final : public IMimicSource {
@@ -44,7 +48,7 @@ private:
   mutable size_t warn_counter_ = 0;
 
 #ifdef USE_HIREDIS
-  struct redisContext* redis_ctx_ = nullptr;
+  ::redisContext* redis_ctx_ = nullptr;
 #endif
 };
 
