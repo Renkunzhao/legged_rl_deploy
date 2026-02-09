@@ -20,6 +20,7 @@ public:
     std::string key;
     int timeout_ms = 5;
     std::string fallback = "hold_last"; // hold_last | zeros | error
+    std::string motion_start_trigger;
     std::vector<float> init;
   };
 
@@ -28,6 +29,7 @@ public:
 
   void reset(const LeggedState& state, float policy_dt) override;
   void step(const LeggedState& state) override;
+  void onGamepad(const unitree::common::Gamepad& gamepad) override;
   void read(std::vector<float>& out) override;
   size_t dim() const override { return output_dim_; }
 
@@ -45,6 +47,9 @@ private:
   size_t output_dim_ = 0;
   FallbackMode fallback_mode_ = FallbackMode::HoldLast;
   std::vector<float> last_good_;
+  bool motion_start_enabled_ = false;
+  std::vector<std::string> motion_start_modifiers_;
+  std::string motion_start_button_;
   mutable size_t warn_counter_ = 0;
 
 #ifdef USE_HIREDIS

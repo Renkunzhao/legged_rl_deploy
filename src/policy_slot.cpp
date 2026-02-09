@@ -353,6 +353,7 @@ void PolicySlot::initMimicSource() {
     cfg.key = redis["key"].as<std::string>();
     cfg.timeout_ms = redis["timeout_ms"].as<int>(5);
     cfg.fallback = redis["fallback"].as<std::string>("hold_last");
+    cfg.motion_start_trigger = redis["motion_start_trigger"].as<std::string>("");
     if (redis["init"] && redis["init"].IsSequence()) {
       cfg.init = redis["init"].as<std::vector<float>>();
     }
@@ -603,6 +604,10 @@ void PolicySlot::updatePolicy(const LeggedState& state,
 void PolicySlot::update(const LeggedState& state,
                         const unitree::common::Gamepad& gamepad,
                         size_t loop_cnt, double ll_dt) {
+  if (mimic_source_) {
+    mimic_source_->onGamepad(gamepad);
+  }
+
   const int decim = std::max(1, static_cast<int>(std::lround(policy_dt_ / ll_dt)));
   if ((loop_cnt % decim) == 0) {
     updatePolicy(state, gamepad, loop_cnt, ll_dt);

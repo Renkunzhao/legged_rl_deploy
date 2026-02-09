@@ -13,6 +13,8 @@
 #include <hiredis/hiredis.h>
 #endif
 
+#include <unitree_lowlevel/gamepad_fsm.hpp>
+
 namespace legged_rl_deploy {
 
 RedisMimicAdapter::RedisMimicAdapter(Config cfg, size_t output_dim)
@@ -34,6 +36,16 @@ RedisMimicAdapter::RedisMimicAdapter(Config cfg, size_t output_dim)
   }
 
   connect();
+
+  if (!cfg_.motion_start_trigger.empty()) {
+    const auto parsed = unitree::common::GamepadFSM::parseTrigger(
+        "motion_start_signal", cfg_.motion_start_trigger);
+    motion_start_modifiers_ = parsed.modifiers;
+    motion_start_button_ = parsed.trigger;
+    motion_start_enabled_ = !motion_start_button_.empty();
+    std::cout << "[RedisMimicAdapter] motion start trigger: "
+              << cfg_.motion_start_trigger << std::endl;
+  }
 }
 
 RedisMimicAdapter::~RedisMimicAdapter() {
@@ -48,6 +60,38 @@ RedisMimicAdapter::~RedisMimicAdapter() {
 void RedisMimicAdapter::reset(const LeggedState&, float) {}
 
 void RedisMimicAdapter::step(const LeggedState&) {}
+
+void RedisMimicAdapter::onGamepad(const unitree::common::Gamepad& gamepad) {
+#ifdef USE_HIREDIS
+  if (!motion_start_enabled_ || !redis_ctx_) return;
+
+  for (const auto& mod : motion_start_modifiers_) {
+    if (!unitree::common::GamepadFSM::buttonPressed(gamepad, mod)) {
+      return;
+    }
+  }
+  if (!unitree::common::GamepadFSM::buttonOnPress(gamepad, motion_start_button_)) {
+    return;
+  }
+
+  redisReply* reply = static_cast<redisReply*>(
+      redisCommand(redis_ctx_, "SET motion_start_signal 1"));
+  if (!reply) {
+    warn("failed to send motion_start_signal");
+    return;
+  }
+  const std::unique_ptr<redisReply, decltype(&freeReplyObject)> guard(
+      reply, freeReplyObject);
+  if (reply->type == REDIS_REPLY_ERROR) {
+    warn("motion_start_signal SET error");
+    return;
+  }
+
+  std::cout << "[RedisMimicAdapter] motion_start_signal=1" << std::endl;
+#else
+  (void)gamepad;
+#endif
+}
 
 void RedisMimicAdapter::read(std::vector<float>& out) {
 #ifdef USE_HIREDIS

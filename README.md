@@ -80,7 +80,9 @@ ros2 run legged_rl_deploy legged_rl_deploy_node $NetworkInterface $WORKSPACE/src
 
 ### TeleOP
 ```bash
-sudo apt install -y libhiredis-dev
+sudo apt install -y libhiredis-dev redis-tools
+
+redis-cli -h 127.0.0.1 -p 6379 -n 0 --scan
 ```
 
 #### Troubleshooting
