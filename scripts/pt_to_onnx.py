@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Convert a TorchScript policy (.pt) to ONNX.
+"""Convert a policy .pt file to ONNX.
+
+Supports:
+  - TorchScript archives (load via torch.jit.load)
+  - Training checkpoints with actor state_dict (load via torch.load + rebuild MLP)
 
 This repo's C++ runner expects policies with:
   - input:  float32 tensor of shape [1, input_dim]
@@ -22,7 +26,8 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
+import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
 
@@ -62,12 +67,212 @@ def _ensure_parent_dir(file_path: str) -> None:
         os.makedirs(parent, exist_ok=True)
 
 
+def _activation_ctor(torch, name: str):
+    n = name.lower()
+    if n == "elu":
+        return torch.nn.ELU
+    if n == "relu":
+        return torch.nn.ReLU
+    if n == "tanh":
+        return torch.nn.Tanh
+    if n == "silu":
+        return torch.nn.SiLU
+    if n == "gelu":
+        return torch.nn.GELU
+    raise RuntimeError(
+        f"Unsupported --checkpoint-activation '{name}'. "
+        "Use one of: elu,relu,tanh,silu,gelu"
+    )
+
+
+def _build_policy_from_checkpoint(
+    payload: object,
+    dims: PolicyDims,
+    checkpoint_activation: str,
+):
+    """Reconstruct a feedforward actor policy from a training checkpoint."""
+    import torch
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            "Loaded .pt is not TorchScript, and torch.load() returned a non-dict object. "
+            "This converter currently supports TorchScript or dict checkpoints."
+        )
+
+    state_dict = None
+    for k in ("model_state_dict", "state_dict", "actor_state_dict", "policy_state_dict"):
+        v = payload.get(k)
+        if isinstance(v, dict):
+            state_dict = v
+            break
+    if state_dict is None and all(torch.is_tensor(v) for v in payload.values()):
+        state_dict = payload
+    if state_dict is None:
+        sample_keys = list(payload.keys())[:20]
+        raise RuntimeError(
+            "Could not find a supported state_dict in checkpoint. "
+            f"Top-level keys: {sample_keys}"
+        )
+
+    actor_state: OrderedDict[str, torch.Tensor] = OrderedDict()
+    for k, v in state_dict.items():
+        if torch.is_tensor(v) and isinstance(k, str) and k.startswith("actor."):
+            actor_state[k[len("actor.") :]] = v
+
+    # Some checkpoints may already store actor-only keys as "0.weight", ...
+    if not actor_state:
+        for k, v in state_dict.items():
+            if torch.is_tensor(v) and isinstance(k, str) and re.fullmatch(r"\d+\.(weight|bias)", k):
+                actor_state[k] = v
+
+    if not actor_state:
+        sample_actor_like = [k for k in state_dict.keys() if isinstance(k, str)][:20]
+        raise RuntimeError(
+            "Checkpoint loaded, but could not locate actor weights. "
+            f"Sample state_dict keys: {sample_actor_like}"
+        )
+
+    layer_ids: list[int] = []
+    for k in actor_state.keys():
+        m = re.fullmatch(r"(\d+)\.weight", k)
+        if m and f"{m.group(1)}.bias" in actor_state:
+            layer_ids.append(int(m.group(1)))
+    layer_ids = sorted(set(layer_ids))
+    if not layer_ids:
+        raise RuntimeError(
+            "Actor state_dict does not contain linear layer pairs '<idx>.weight' and '<idx>.bias'."
+        )
+
+    first_w = actor_state[f"{layer_ids[0]}.weight"]
+    last_w = actor_state[f"{layer_ids[-1]}.weight"]
+    if first_w.ndim != 2 or last_w.ndim != 2:
+        raise RuntimeError("Unsupported actor layer shape: expected 2D linear weights.")
+
+    inferred_input_dim = int(first_w.shape[1])
+    inferred_output_dim = int(last_w.shape[0])
+
+    if dims.input_dim != inferred_input_dim or dims.output_dim != inferred_output_dim:
+        raise RuntimeError(
+            "Config dimensions do not match checkpoint actor dimensions. "
+            f"config=({dims.input_dim},{dims.output_dim}), "
+            f"checkpoint=({inferred_input_dim},{inferred_output_dim})"
+        )
+
+    act = _activation_ctor(torch, checkpoint_activation)
+    modules: list[tuple[str, torch.nn.Module]] = []
+    for i, layer_id in enumerate(layer_ids):
+        w = actor_state[f"{layer_id}.weight"]
+        b = actor_state[f"{layer_id}.bias"]
+        if w.ndim != 2 or b.ndim != 1 or int(w.shape[0]) != int(b.shape[0]):
+            raise RuntimeError(
+                f"Invalid linear params for layer {layer_id}: weight={tuple(w.shape)}, bias={tuple(b.shape)}"
+            )
+        modules.append((str(layer_id), torch.nn.Linear(int(w.shape[1]), int(w.shape[0]))))
+        if i != len(layer_ids) - 1:
+            modules.append((f"act_{layer_id}", act()))
+
+    actor = torch.nn.Sequential(OrderedDict(modules))
+    actor.load_state_dict(actor_state, strict=True)
+    actor.eval()
+
+    mean = state_dict.get("actor_obs_normalizer._mean")
+    std = state_dict.get("actor_obs_normalizer._std")
+    if std is None and torch.is_tensor(state_dict.get("actor_obs_normalizer._var")):
+        std = torch.sqrt(state_dict["actor_obs_normalizer._var"] + 1.0e-8)
+
+    use_normalizer = torch.is_tensor(mean) and torch.is_tensor(std)
+    obs_mean = None
+    obs_std = None
+    if use_normalizer:
+        assert torch.is_tensor(mean)
+        assert torch.is_tensor(std)
+        obs_mean = mean.to(dtype=torch.float32).reshape(1, -1)
+        obs_std = std.to(dtype=torch.float32).reshape(1, -1)
+        if obs_mean.shape[-1] != inferred_input_dim or obs_std.shape[-1] != inferred_input_dim:
+            raise RuntimeError(
+                "Checkpoint actor_obs_normalizer shape mismatch with actor input dim. "
+                f"mean={tuple(obs_mean.shape)}, std={tuple(obs_std.shape)}, input_dim={inferred_input_dim}"
+            )
+
+    class _CheckpointPolicy(torch.nn.Module):
+        def __init__(self, actor_module, mean_tensor, std_tensor):
+            super().__init__()
+            self.actor = actor_module
+            self._use_normalizer = (
+                mean_tensor is not None
+                and std_tensor is not None
+                and torch.is_tensor(mean_tensor)
+                and torch.is_tensor(std_tensor)
+            )
+            if self._use_normalizer:
+                self.register_buffer("_obs_mean", mean_tensor)
+                self.register_buffer("_obs_std", std_tensor)
+
+        def forward(self, obs):
+            x = obs
+            if self._use_normalizer:
+                x = (x - self._obs_mean) / torch.clamp(self._obs_std, min=1.0e-6)
+            out = self.actor(x)
+            if isinstance(out, (tuple, list)):
+                return out[0]
+            return out
+
+    return _CheckpointPolicy(actor, obs_mean, obs_std)
+
+
+def _load_policy_module(
+    pt_path: str,
+    dims: PolicyDims,
+    checkpoint_activation: str,
+):
+    """Load a policy module from either TorchScript or checkpoint state_dict."""
+    import torch
+
+    class _Wrapper(torch.nn.Module):
+        def __init__(self, module):
+            super().__init__()
+            self.module = module
+
+        def forward(self, obs):
+            out = self.module(obs)
+            # Some policies return (action, ...). Keep action.
+            if isinstance(out, (tuple, list)):
+                return out[0]
+            return out
+
+    ts_err = None
+    try:
+        ts = torch.jit.load(pt_path, map_location="cpu")
+        ts.eval()
+        return _Wrapper(ts), "torchscript"
+    except Exception as e:
+        ts_err = e
+
+    try:
+        payload = torch.load(pt_path, map_location="cpu", weights_only=False)
+    except Exception as ckpt_err:
+        raise RuntimeError(
+            "Failed to load .pt as TorchScript and as checkpoint.\n"
+            f"torch.jit.load error: {ts_err}\n"
+            f"torch.load error: {ckpt_err}"
+        ) from ckpt_err
+
+    policy = _build_policy_from_checkpoint(
+        payload=payload,
+        dims=dims,
+        checkpoint_activation=checkpoint_activation,
+    )
+    policy.eval()
+    return policy, "checkpoint"
+
+
 def _export_torchscript_to_onnx(
     pt_path: str,
     onnx_path: str,
     dims: PolicyDims,
     opset: int,
     dynamic_batch: bool,
+    checkpoint_activation: str,
 ) -> None:
     try:
         import torch
@@ -82,23 +287,13 @@ def _export_torchscript_to_onnx(
     if not os.path.exists(pt_path):
         raise FileNotFoundError(pt_path)
 
-    ts = torch.jit.load(pt_path, map_location="cpu")
-    ts.eval()
-
-    class _Wrapper(torch.nn.Module):
-        def __init__(self, module):
-            super().__init__()
-            self.module = module
-
-        def forward(self, obs):
-            out = self.module(obs)
-            # Some policies return (action, ...). Keep action.
-            if isinstance(out, (tuple, list)):
-                return out[0]
-            return out
-
-    wrapper = _Wrapper(ts)
-    wrapper.eval()
+    policy_module, source = _load_policy_module(
+        pt_path=pt_path,
+        dims=dims,
+        checkpoint_activation=checkpoint_activation,
+    )
+    policy_module.eval()
+    print(f"Loaded policy source: {source}")
 
     dummy = torch.randn(1, dims.input_dim, dtype=torch.float32)
 
@@ -107,7 +302,7 @@ def _export_torchscript_to_onnx(
     #   "Tried to trace <...> but it is not part of the active trace"
     # Tracing a small wrapper first produces a stable TorchScript graph that the
     # ONNX exporter can consume.
-    traced = torch.jit.trace(wrapper, dummy, strict=False)
+    traced = torch.jit.trace(policy_module, dummy, strict=False)
     traced.eval()
 
     input_names = ["obs"]
@@ -142,6 +337,7 @@ def _check_onnx(
     dims: PolicyDims,
     n_trials: int,
     atol: float,
+    checkpoint_activation: str,
 ) -> None:
     try:
         import onnx
@@ -165,13 +361,17 @@ def _check_onnx(
     # Prepare Torch runner
     import torch
 
-    ts = torch.jit.load(pt_path, map_location="cpu")
-    ts.eval()
+    policy_module, source = _load_policy_module(
+        pt_path=pt_path,
+        dims=dims,
+        checkpoint_activation=checkpoint_activation,
+    )
+    policy_module.eval()
 
     def torch_forward(obs_np: np.ndarray) -> np.ndarray:
         with torch.no_grad():
             obs = torch.from_numpy(obs_np).to(dtype=torch.float32)
-            out = ts(obs)
+            out = policy_module(obs)
             if isinstance(out, (tuple, list)):
                 out = out[0]
             out = out.to("cpu", torch.float32).contiguous()
@@ -196,17 +396,25 @@ def _check_onnx(
                 f"ONNX check failed on trial {i}: max_abs_diff={max_abs} > atol={atol}"
             )
 
-    print(f"ONNX check OK ({n_trials} trials, atol={atol})")
+    print(f"ONNX check OK ({n_trials} trials, atol={atol}, source={source})")
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Convert TorchScript (.pt) policy to ONNX.")
-    p.add_argument("--pt", required=True, help="Input TorchScript file (.pt)")
+    p = argparse.ArgumentParser(description="Convert policy (.pt) to ONNX.")
+    p.add_argument("--pt", required=True, help="Input policy file (.pt): TorchScript or checkpoint")
     p.add_argument("--onnx", required=True, help="Output ONNX file (.onnx)")
     p.add_argument("--config", help="Deploy YAML config to read policy.input_dim/output_dim")
     p.add_argument("--input-dim", type=int, help="Policy input dim (if not using --config)")
     p.add_argument("--output-dim", type=int, help="Policy output dim (if not using --config)")
     p.add_argument("--opset", type=int, default=17, help="ONNX opset version (default: 17)")
+    p.add_argument(
+        "--checkpoint-activation",
+        default="elu",
+        help=(
+            "Activation used when --pt is a training checkpoint (not TorchScript). "
+            "Default: elu"
+        ),
+    )
     p.add_argument(
         "--dynamic-batch",
         action="store_true",
@@ -230,6 +438,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         dims=dims,
         opset=args.opset,
         dynamic_batch=args.dynamic_batch,
+        checkpoint_activation=args.checkpoint_activation,
     )
 
     if args.check:
@@ -239,6 +448,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             dims=dims,
             n_trials=args.check_trials,
             atol=args.check_atol,
+            checkpoint_activation=args.checkpoint_activation,
         )
 
     print(f"Wrote: {args.onnx}")

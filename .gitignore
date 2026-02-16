@@ -1,2 +1,3 @@
 thirdparty/
 .venv/
+__pycache__/

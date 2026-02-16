@@ -49,12 +49,12 @@
       "type": "shell",
       "command": "${env:HOME}/.local/bin/uv",
       "args": [
-          "run","python", "pt_to_onnx.py",
-          "--pt", "../${input:Config Path}/policy.pt",
-          "--onnx", "../${input:Config Path}/policy.onnx", 
-          "--config", "../${input:Config Path}/config.yaml"
+          "run","python", "scripts/pt_to_onnx.py",
+          "--pt", "${input:Config Path}/policy.pt",
+          "--onnx", "${input:Config Path}/policy.onnx", 
+          "--config", "${input:Config Path}/config.yaml"
       ],
-      "options": { "cwd": "${workspaceFolder}/scripts" },
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {
