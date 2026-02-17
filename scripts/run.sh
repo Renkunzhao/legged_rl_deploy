@@ -9,9 +9,10 @@ if [[ $# -lt 2 ]]; then
 fi
 
 NET_IF="$1"
-shift
+ROS_DISTRO="$2"
+shift 2
 
-source "$PROJECT_DIR/../unitree_lowlevel/scripts/setup.sh" "$NET_IF" "${ROS_DISTRO:-}"
+source "$PROJECT_DIR/../unitree_lowlevel/scripts/setup.sh" "$NET_IF" "$ROS_DISTRO"
 
 cd "$PROJECT_DIR"
 if [[ "$(uname -m)" == "x86_64" ]]; then
