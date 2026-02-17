@@ -35,10 +35,9 @@ policy:
   ]
   commands: 
     base_velocity:
-      process_order: [scale, clip]
-      scale: 0.95
-      min: [-1.0, -0.5, -0.5]
-      max: [1.0, 0.5, 0.5]
+      process_order: [clip]
+      min: [-1.0, -1.0, -0.5]
+      max: [1.0, 1.0, 0.5]
   actions:
     # src/mjlab/rl/vecenv_wrapper.py step: clip
     # src/mjlab/envs/mdp/actions/actions.py process_actions: scale, offset
