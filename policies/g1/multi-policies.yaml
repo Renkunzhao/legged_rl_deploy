@@ -32,11 +32,17 @@ fsm:
     velocity:
       config: src/legged_rl_deploy/policies/g1/velocity/unitree_rl_mjlab/config.yaml
       transitions:
+        dance1_subject1: A
         dance1_subject2: R1 + A
         dance_102: R1 + B
         gangnam_style: R1 + X
         pose: R1 + Y
         jumps1_subject1: R2 + B
+
+    dance1_subject1:
+      config: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/dance1_subject1/config.yaml
+      transitions:
+        velocity: R2 + A
 
     dance1_subject2:
       config: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/config.yaml
