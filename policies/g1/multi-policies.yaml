@@ -36,7 +36,6 @@ fsm:
         dance1_subject2: R1 + A
         dance_102: R1 + B
         gangnam_style: R1 + X
-        pose: R1 + Y
         jumps1_subject1: R2 + B
 
     dance1_subject1:
@@ -56,11 +55,6 @@ fsm:
 
     gangnam_style:
       config: src/legged_rl_deploy/policies/g1/mimic/gangnam_style/config.yaml
-      transitions:
-        velocity: R2 + A
-
-    pose:
-      config: src/legged_rl_deploy/policies/g1/mimic/pose/config.yaml
       transitions:
         velocity: R2 + A
 

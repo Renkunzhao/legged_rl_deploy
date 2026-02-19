@@ -3,12 +3,106 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <stdexcept>
 #include <vector>
 
 #include <legged_base/Utils.h>
 
 namespace legged_rl_deploy {
+
+namespace {
+
+void applyPolicyFileOverrides(const std::string& pname, const YAML::Node& entry,
+                              YAML::Node& policy_node) {
+  const bool has_model_file = entry["model_file"] && !entry["model_file"].IsNull();
+  const bool has_motion_file = entry["motion_file"] && !entry["motion_file"].IsNull();
+
+  if (!has_model_file && !has_motion_file) {
+    return;
+  }
+
+  std::string model_file;
+  if (has_model_file) {
+    model_file = entry["model_file"].as<std::string>();
+    policy_node["model_path"] = model_file;
+    std::cout << "[LeggedRLDeploy] Override '" << pname
+              << "': policy.model_path <- " << model_file << std::endl;
+  }
+
+  std::string effective_motion_file;
+  bool motion_is_explicit = false;
+  if (has_motion_file) {
+    effective_motion_file = entry["motion_file"].as<std::string>();
+    motion_is_explicit = true;
+  } else if (has_model_file) {
+    effective_motion_file = model_file;
+  }
+
+  if (effective_motion_file.empty()) {
+    return;
+  }
+
+  const YAML::Node policy_const(policy_node);
+  const YAML::Node observations = policy_const["observations"];
+  const YAML::Node terms = observations ? observations["terms"] : YAML::Node();
+  const YAML::Node mimic_const = terms ? terms["mimic"] : YAML::Node();
+
+  if (!mimic_const || !mimic_const.IsMap()) {
+    if (motion_is_explicit) {
+      throw std::runtime_error(
+          "[LeggedRLDeploy] fsm.policies." + pname +
+          ".motion_file is set, but policy has no observations.terms.mimic");
+    }
+    std::cout << "[LeggedRLDeploy] Override '" << pname
+              << "': auto motion sync skipped (no mimic term)." << std::endl;
+    return;
+  }
+
+  const YAML::Node params_const = mimic_const["params"];
+  if (params_const && !params_const.IsMap()) {
+    throw std::runtime_error("[LeggedRLDeploy] fsm.policies." + pname +
+                             ".observations.terms.mimic.params must be a map");
+  }
+
+  const std::string source =
+      params_const ? params_const["source"].as<std::string>("local") : "local";
+  if (source != "local") {
+    if (motion_is_explicit) {
+      throw std::runtime_error("[LeggedRLDeploy] fsm.policies." + pname +
+                               ".motion_file requires mimic.params.source=local");
+    }
+    std::cout << "[LeggedRLDeploy] Override '" << pname
+              << "': auto motion sync skipped (mimic source='" << source
+              << "')." << std::endl;
+    return;
+  }
+
+  YAML::Node mimic = policy_node["observations"]["terms"]["mimic"];
+  YAML::Node params = mimic["params"];
+  if (!params || params.IsNull()) {
+    mimic["params"] = YAML::Node(YAML::NodeType::Map);
+    params = mimic["params"];
+  }
+  YAML::Node local = params["local"];
+  if (!local || local.IsNull()) {
+    params["local"] = YAML::Node(YAML::NodeType::Map);
+    local = params["local"];
+  }
+  if (!local.IsMap()) {
+    throw std::runtime_error("[LeggedRLDeploy] fsm.policies." + pname +
+                             ".observations.terms.mimic.params.local must be a map");
+  }
+
+  local["file"] = effective_motion_file;
+  std::cout << "[LeggedRLDeploy] Override '" << pname
+            << "': mimic.params.local.file <- " << effective_motion_file
+            << (motion_is_explicit ? " (explicit motion_file)"
+                                   : " (auto-sync from model_file)")
+            << std::endl;
+}
+
+} // namespace
 
 // ===========================================================================
 // Construction
@@ -90,6 +184,7 @@ void LeggedRLDeploy::initHighController() {
             "[LeggedRLDeploy] fsm.policies." + pname +
             " must have 'config' (path) or inline 'policy' node");
       }
+      applyPolicyFileOverrides(pname, entry, policyNode);
 
       auto slot =
           std::make_unique<PolicySlot>(pname, policyNode, robot_model_);
