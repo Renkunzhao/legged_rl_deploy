@@ -17,7 +17,7 @@ tau_max: [
 ]
 
 # true => deploy computes final torque from q_target/kp/kd (then lowlevel torqueClip applies tau_max)
-clip_final_tau: true
+clip_final_tau: false
 
 policy:
   backend: ort

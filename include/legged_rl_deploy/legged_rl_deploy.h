@@ -25,7 +25,7 @@ private:
 
   // -------- config --------
   YAML::Node configNode_;
-  bool clip_final_tau_ = true;
+  bool clip_final_tau_ = false;
 
   // -------- multi-policy slots --------
   std::unordered_map<std::string, std::unique_ptr<PolicySlot>> slots_;

@@ -20,7 +20,7 @@ llc_config_file: src/unitree_lowlevel/config/g1.yaml
 ll_dt: 0.005
 
 # clip final torque (shared)
-clip_final_tau: true
+clip_final_tau: false
 
 # FSM definition
 fsm:

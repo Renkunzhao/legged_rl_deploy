@@ -36,6 +36,7 @@ public:
   const std::vector<size_t>& jointIdsMap() const { return joint_ids_map_; }
   const std::vector<float>& stiffness() const { return stiffness_; }
   const std::vector<float>& damping() const { return damping_; }
+  bool hasValidOutput() const { return has_valid_output_; }
 
 private:
   struct ObsTerm {
@@ -111,6 +112,7 @@ private:
   bool has_mimic_term_ = false;
   YAML::Node mimic_params_;
   std::unique_ptr<IMimicSource> mimic_source_;
+  bool has_valid_output_ = false;
 };
 
 } // namespace legged_rl_deploy

@@ -103,9 +103,25 @@ void PolicySlot::init() {
 
 void PolicySlot::reset(const LeggedState& state) {
   std::fill(input_buf_.begin(), input_buf_.end(), 0.0f);
-  std::fill(output_buf_.begin(), output_buf_.end(), 0.0f);
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
   obs_hist_.clear();
+  has_valid_output_ = false;
+
+  // Hold current posture after reset until first valid policy output arrives.
+  if (output_buf_.size() != output_dim_) {
+    output_buf_.assign(output_dim_, 0.0f);
+  }
+  const auto& q = state.joint_pos();
+  for (size_t i = 0; i < output_dim_; ++i) {
+    if (i < joint_ids_map_.size()) {
+      const size_t j = joint_ids_map_[i];
+      if (j < static_cast<size_t>(q.size())) {
+        output_buf_[i] = static_cast<float>(q[j]);
+        continue;
+      }
+    }
+    output_buf_[i] = 0.0f;
+  }
 
   if (mimic_source_) {
     mimic_source_->reset(state, policy_dt_);
@@ -535,7 +551,13 @@ void PolicySlot::assembleObsByLayout() {
     std::vector<const std::vector<float>*> timeline;
     timeline.reserve(obs_hist_.size() + 1);
     for (const auto& fr : obs_hist_) timeline.push_back(&fr);
-    if (block.include_current) timeline.push_back(&obs_now_);
+    const bool inject_current_for_warmup =
+        !block.include_current &&
+        history_warmup_ == "repeat_first" &&
+        timeline.size() < block.length;
+    if (block.include_current || inject_current_for_warmup) {
+      timeline.push_back(&obs_now_);
+    }
 
     const size_t take = std::min(block.length, timeline.size());
     const size_t pad = block.length - take;
@@ -594,8 +616,20 @@ void PolicySlot::updatePolicy(const LeggedState& state,
     stackObsGlobal();
   }
 
-  policy_runner_->infer(input_buf_.data(), output_buf_.data());
-  last_action_ = output_buf_;
+  std::vector<float> raw_output(output_dim_, 0.0f);
+  policy_runner_->infer(input_buf_.data(), raw_output.data());
+  for (float v : raw_output) {
+    if (!std::isfinite(v)) {
+      std::cerr << "[PolicySlot:" << name_
+                << "] infer output has NaN/Inf, keep previous output."
+                << std::endl;
+      return;
+    }
+  }
+
+  last_action_ = raw_output;
+  output_buf_ = raw_output;
+  has_valid_output_ = true;
 
   auto it = actions_.find("JointPositionAction");
   if (it != actions_.end()) it->second.process(output_buf_);
