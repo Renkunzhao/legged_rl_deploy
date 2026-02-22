@@ -52,7 +52,7 @@ ll_dt: 0.005
 # whole_body_tracking
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
+  model_path: src/legged_rl_deploy/policies/g1/mimic/whole_body_tracking/jumps1_subject1/policy.onnx
   # [SOURCE] ONNX: input shape=[1,154], output shape=[1,29]
   input_dim: 154
   output_dim: 29
@@ -120,7 +120,7 @@ policy:
           dim: 64
           terms: [joint_pos, joint_vel, motion_anchor_ori_b]
           local:
-            file: src/legged_rl_deploy/policies/g1/mimic/LAFAN1_Retargeting/jumps1_subject1/policy.onnx
+            file: src/legged_rl_deploy/policies/g1/mimic/whole_body_tracking/jumps1_subject1/policy.onnx
             fps: 50
             hardware_order: false
             time_start: 2
