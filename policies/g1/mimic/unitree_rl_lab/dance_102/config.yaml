@@ -7,7 +7,7 @@ ll_dt: 0.005
 # Training repo: unitree_rl_lab
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/g1/mimic/dance_102/policy.onnx
+  model_path: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_lab/dance_102/policy.onnx
   input_dim: 154
   output_dim: 29
   policy_dt: 0.02
@@ -46,7 +46,7 @@ policy:
           dim: 64
           terms: [joint_pos, joint_vel, motion_anchor_ori_b]
           local:
-            file: src/legged_rl_deploy/policies/g1/mimic/dance_102/G1_Take_102.bvh_60hz.csv
+            file: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_lab/dance_102/G1_Take_102.bvh_60hz.csv
             fps: 60
             hardware_order: true
             time_start: 2.8

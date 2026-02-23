@@ -41,18 +41,18 @@ fsm:
 
     # unitree_rl_mjlab
     dance1_subject2:
-      config: src/legged_rl_deploy/policies/g1/mimic/dance1_subject2/config.yaml
+      config: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_mjlab/dance1_subject2/config.yaml
       transitions:
         velocity: R2 + A
 
     # unitree_rl_lab
     dance_102:
-      config: src/legged_rl_deploy/policies/g1/mimic/dance_102/config.yaml
+      config: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_lab/dance_102/config.yaml
       transitions:
         velocity: R2 + A
 
     gangnam_style:
-      config: src/legged_rl_deploy/policies/g1/mimic/gangnam_style/config.yaml
+      config: src/legged_rl_deploy/policies/g1/mimic/unitree_rl_lab/gangnam_style/config.yaml
       transitions:
         velocity: R2 + A
 
