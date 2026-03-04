@@ -12,7 +12,7 @@ policy:
   # backend: libtorch
   # model_path: src/legged_rl_deploy/policies/go2/velocity/mjlab/polity.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2/velocity/mjlab/polity.onnx
+  model_path: src/legged_rl_deploy/policies/go2/mjlab/velocity/polity.onnx
   input_dim: 45
   output_dim: 12
   # src/mjlab/tasks/velocity/velocity_env_cfg.py ManagerBasedRlEnvCfg
@@ -57,9 +57,6 @@ policy:
          0.1, 0.9, -1.8   
       ]
   observations:
-    stack:
-      length: 1
-      order: oldest_first
     terms:
       # observation_manager.py compute_group: 
       # all term are in [clip, scale] order

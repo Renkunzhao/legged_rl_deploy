@@ -13,10 +13,10 @@ tau_max:
 
 policy:
   # backend: libtorch
-  # model_path: src/legged_rl_deploy/policies/go2/legstand/policy.pt
+  # model_path: src/legged_rl_deploy/policies/go2/handstand/policy.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2/legstand/policy.onnx
-  input_dim: 48          # ✅ handstand: frame_stack=1, num_single_obs=48
+  model_path: src/legged_rl_deploy/policies/go2/My_unitree_go2_gym/handstand/policy.onnx
+  input_dim: 48          # single-frame input, num_single_obs=48
   output_dim: 12
   policy_dt: 0.02
 
@@ -37,10 +37,6 @@ policy:
     base_velocity:
 
   observations:
-    stack:
-      length: 1            # ✅ handstand: frame_stack=1
-      order: oldest_first  # 无所谓，len=1
-
     # 48维单帧：严格按 python deploy index 排列
     terms:
       # obs[0:3] = [0,0,0]

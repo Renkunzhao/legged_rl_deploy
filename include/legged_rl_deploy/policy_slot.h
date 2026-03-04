@@ -39,39 +39,57 @@ public:
   bool hasValidOutput() const { return has_valid_output_; }
 
 private:
+  enum class OrderMode { OldestFirst, NewestFirst, Explicit };
+  enum class HistoryWarmupMode { RepeatFirst, Zero };
+
+  struct ObsOrderSpec {
+    OrderMode mode = OrderMode::OldestFirst;
+    std::vector<size_t> lags;
+  };
+
   struct ObsTerm {
     std::string name;
     size_t dim = 0;
     size_t offset = 0;
     std::optional<Processor> proc;
     YAML::Node params;
+    size_t default_length = 1;
+    bool has_default_length = false;
+    ObsOrderSpec default_order;
+    HistoryWarmupMode default_history_warmup = HistoryWarmupMode::RepeatFirst;
   };
 
-  enum class LayoutKind { CurrentFrame, HistoryFrame, CurrentTerms };
-
-  struct ObsLayoutBlock {
-    LayoutKind kind = LayoutKind::CurrentFrame;
-    size_t length = 0; // history_frame only
-    std::string order = "oldest_first";
-    bool include_current = false;
+  struct AssembleBlock {
     std::vector<size_t> term_indices;
+    ObsOrderSpec order;
+    size_t length = 1;
+    bool has_length = false;
+    HistoryWarmupMode history_warmup = HistoryWarmupMode::RepeatFirst;
+    std::vector<size_t> lags;
     size_t dim = 0;
   };
 
   void registryObsTerms(YAML::Node node);
   void calculateObsTerm(ObsTerm& term);
-  void parseObsLayout(const YAML::Node& observations);
+  void parseAssemble(const YAML::Node& observations);
+  void computeTermHistoryCapacities();
   void initMimicSource();
   void assembleObsFrame(const LeggedState& state,
                         const unitree::common::Gamepad& gamepad,
                         size_t loop_cnt, double ll_dt);
-  void stackObsGlobal();
-  void assembleObsByLayout();
-  void pushObsHistory();
+  void assembleDefaultTermMajor();
+  void assembleFromBlocks();
+  void pushTermHistory();
   void updatePolicy(const LeggedState& state,
                     const unitree::common::Gamepad& gamepad, size_t loop_cnt,
                     double ll_dt);
   const ObsTerm& getObsTermByName(const std::string& name) const;
+  static ObsOrderSpec parseOrderSpec(const YAML::Node& node);
+  static std::vector<size_t> resolveLags(const ObsOrderSpec& spec, size_t length);
+  static HistoryWarmupMode parseWarmup(const YAML::Node& node,
+                                       HistoryWarmupMode default_mode);
+  const std::vector<float>& sampleTermAtLag(size_t term_idx, size_t lag,
+                                            HistoryWarmupMode warmup) const;
   static std::vector<std::string> loadMimicTerms(const YAML::Node& params);
 
   std::string name_;
@@ -96,18 +114,15 @@ private:
   std::vector<ObsTerm> obs_terms_;
   std::unordered_map<std::string, size_t> obs_term_indices_;
 
-  size_t stack_len_ = 1;
-  std::string stack_order_ = "oldest_first";
   size_t obs_dim_ = 0;
   std::vector<float> obs_now_;
-  std::deque<std::vector<float>> obs_hist_;
-  std::vector<float> zeros_frame_;
-
-  bool use_layout_ = false;
-  std::vector<ObsLayoutBlock> layout_blocks_;
-  size_t history_capacity_ = 0;
-  std::string history_warmup_ = "repeat_first";
-  size_t layout_input_dim_ = 0;
+  std::vector<std::vector<float>> term_now_;
+  std::vector<std::vector<float>> term_zero_;
+  std::vector<std::deque<std::vector<float>>> term_hist_;
+  std::vector<std::vector<size_t>> term_default_lags_;
+  std::vector<size_t> term_history_capacity_;
+  bool use_assemble_ = false;
+  std::vector<AssembleBlock> assemble_blocks_;
 
   bool has_mimic_term_ = false;
   YAML::Node mimic_params_;

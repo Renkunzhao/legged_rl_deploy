@@ -1,0 +1,109 @@
+# lowlevel controller
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+
+ll_dt: 0.005
+
+# Training repo: mjlab
+# Task: Mjlab-Hopping-Flat-Unitree-Go2
+# sim.timestep=0.005, decimation=4 -> policy_dt=0.02
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2/mjlab/hop/policy.onnx
+  input_dim: 470    # 47 dims * 10 frames
+  output_dim: 12
+  policy_dt: 0.02
+
+  # MuJoCo XML order: FL(0-2), FR(3-5), RL(6-8), RR(9-11)
+  # SDK hardware order: FR(0-2), FL(3-5), RR(6-8), RL(9-11)
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+
+  # Hopping-specific: kp=20, kd=0.5 for all joints
+  # (env_cfgs.py: _HIP_ACTUATOR / _CALF_ACTUATOR)
+  stiffness: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+  damping:   [0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5]
+
+  commands:
+    base_velocity:
+
+  # JointPositionAction: target = raw_output * scale + offset
+  # scale=0.25, offset=default_joint_pos (training order: FL,FR,RL,RR)
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -100.0
+      max: 100.0
+      scale: 0.25
+      offset: [0.1,0.8,-1.5, -0.1,0.8,-1.5, 0.1,1.0,-1.5, -0.1,1.0,-1.5]
+
+  observations:
+    # Single frame 47 dims (training order: FL, FR, RL, RR):
+    # [0:2]   gait_phase: sin(2π·phase), cos(2π·phase)
+    # [2:5]   command: vx, vy, ωz  (raw, no scaling)
+    # [5:8]   base_ang_vel: ωx, ωy, ωz  (raw rad/s, no scaling)
+    # [8:11]  euler_xyz: roll, pitch, yaw (rad)
+    # [11:23] joint_pos - default_joint_pos  (no scaling)
+    # [23:35] joint_vel  (raw rad/s, no scaling)
+    # [35:47] last_action (raw network output)
+    terms:
+      gait_phase_2:
+        params:
+          cycle_time: 1.5
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+        order: oldest_first
+        length: 10
+        history_warmup: repeat_first
+
+      velocity_commands:
+        # mjlab generated_commands returns raw [vx, vy, ωz] — no scaling
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+        order: oldest_first
+        length: 10
+        history_warmup: repeat_first
+
+      base_ang_vel_B:
+        # mjlab builtin_sensor(imu_ang_vel) returns raw rad/s — no scaling
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+        order: oldest_first
+        length: 10
+        history_warmup: repeat_first
+
+      eulerZYX_rpy:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+        order: oldest_first
+        length: 10
+        history_warmup: repeat_first
+
+      joint_pos:
+        process_order: [offset, clip]
+        # offset = -default_joint_pos (training order FL, FR, RL, RR)
+        offset: [-0.1,-0.8,1.5, 0.1,-0.8,1.5, -0.1,-1.0,1.5, 0.1,-1.0,1.5]
+        min: -100.0
+        max: 100.0
+        order: oldest_first
+        length: 10
+        history_warmup: repeat_first
+
+      joint_vel:
+        # mjlab joint_vel_rel returns raw rad/s — no scaling
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+        order: oldest_first
+        length: 10
+        history_warmup: repeat_first
+
+      last_action:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+        order: oldest_first
+        length: 10
+        history_warmup: repeat_first

@@ -41,9 +41,6 @@ policy:
                 0.35,-0.18,0,0.87,0,0,0]
   
   observations:
-    stack:
-      length: 1
-      order: newest_first
     terms:
       mimic:
         params:

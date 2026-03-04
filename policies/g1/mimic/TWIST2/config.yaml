@@ -63,12 +63,6 @@ policy:
       ]
 
   observations:
-    # layout is used; stack is kept as a harmless placeholder
-    stack:
-      length: 1
-      order: newest_first
-    # Match python history deque prefilled with zeros
-    history_warmup: zero
     terms:
       # action_mimic from redis key "action_body_unitree_g1_with_hands" (35 dim)
       mimic:
@@ -119,12 +113,8 @@ policy:
 
     # obs_buf = [obs_full, obs_hist(10), future_obs=mimic]
     # obs_full = [mimic, base_ang_vel_B, roll_pitch, joint_pos, joint_vel, last_action]
-    layout:
-      blocks:
-        - kind: current_frame
-        - kind: history_frame
-          length: 10
-          order: oldest_first
-          include_current: false
-        - kind: current_terms
-          terms: [mimic]
+    assemble:
+      - terms: [mimic, base_ang_vel_B, roll_pitch, joint_pos, joint_vel, last_action]
+        order: [0, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+        history_warmup: zero
+      - terms: [mimic]

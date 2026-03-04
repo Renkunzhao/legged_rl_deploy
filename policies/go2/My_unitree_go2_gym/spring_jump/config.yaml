@@ -14,7 +14,7 @@ policy:
   # backend: libtorch
   # model_path: src/legged_rl_deploy/policies/go2/spring_jump/policy.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2/spring_jump/policy.onnx
+  model_path: src/legged_rl_deploy/policies/go2/My_unitree_go2_gym/spring_jump/policy.onnx
   input_dim: 470          # 47 * 10
   output_dim: 12
   policy_dt: 0.02
@@ -34,10 +34,6 @@ policy:
   commands: {}
 
   observations:
-    stack:
-      length: 10
-      order: oldest_first
-
     terms:
       constants:
         params:
@@ -81,3 +77,8 @@ policy:
         process_order: [clip]
         min: -100.0
         max: 100.0
+
+    assemble:
+      - terms: [constants, joystick_buttons, base_ang_vel_B, eulerZYX_rpy, joint_pos, joint_vel, last_action]
+        order: oldest_first
+        length: 10

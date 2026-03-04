@@ -28,49 +28,30 @@ fsm:
   default: trot
 
   policies:
-    # ---- velocity (walking / balancing) ----
-    velocity-aba:
-      config: src/legged_rl_deploy/policies/go2/velocity/aba/config.yaml
-      transitions:
-        trot: start
-
-    velocity-mjlab:
-      config: src/legged_rl_deploy/policies/go2/velocity/mjlab/config.yaml
-      transitions:
-        trot: start
-
-    velocity-unitree_rl_lab:
-      config: src/legged_rl_deploy/policies/go2/velocity/unitree_rl_lab/config.yaml
-      transitions:
-        trot: start
-
     trot:
-      config: src/legged_rl_deploy/policies/go2/trot/config.yaml
+      config: src/legged_rl_deploy/policies/go2/My_unitree_go2_gym/trot/config.yaml
       transitions:
-        velocity-aba: R2 + A
-        velocity-mjlab: R2 + B
-        velocity-unitree_rl_lab: R2 + X
         hop: R2 + Y
         legstand: R1 + A
         handstand: R1 + B
         spring_jump: R1 + X
 
     hop:
-      config: src/legged_rl_deploy/policies/go2/hop/config.yaml
+      config: src/legged_rl_deploy/policies/go2/My_unitree_go2_gym/hop/config.yaml
       transitions:
         trot: start
 
     legstand:
-      config: src/legged_rl_deploy/policies/go2/legstand/config.yaml
+      config: src/legged_rl_deploy/policies/go2/My_unitree_go2_gym/legstand/config.yaml
       transitions:
         trot: start
 
     handstand:
-      config: src/legged_rl_deploy/policies/go2/handstand/config.yaml
+      config: src/legged_rl_deploy/policies/go2/My_unitree_go2_gym/handstand/config.yaml
       transitions:
         trot: start
 
     spring_jump:
-      config: src/legged_rl_deploy/policies/go2/spring_jump/config.yaml
+      config: src/legged_rl_deploy/policies/go2/My_unitree_go2_gym/spring_jump/config.yaml
       transitions:
         trot: start

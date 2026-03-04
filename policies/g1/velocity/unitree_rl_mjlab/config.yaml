@@ -47,9 +47,6 @@ policy:
       ]
  
   observations:
-    stack:
-      length: 1
-      order: newest_first
     terms:
       # 3 + 3 + 3 + 29 + 29 + 29 = 96
       base_ang_vel_B:

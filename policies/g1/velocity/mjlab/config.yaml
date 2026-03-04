@@ -60,9 +60,6 @@ policy:
         0.2, -0.2, 0.0, 0.6, 0.0, 0.0, 0.0
       ]
   observations:
-    stack:
-      length: 1
-      order: oldest_first
     terms:
       base_ang_vel_B:
       projected_gravity:

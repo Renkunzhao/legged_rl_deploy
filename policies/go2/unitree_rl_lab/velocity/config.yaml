@@ -10,7 +10,7 @@ policy:
   # backend: libtorch
   # model_path: src/legged_rl_deploy/policies/go2/velocity/unitree_rl_lab/policy.pt
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2/velocity/unitree_rl_lab/policy.onnx
+  model_path: src/legged_rl_deploy/policies/go2/unitree_rl_lab/velocity/policy.onnx
   input_dim: 45
   output_dim: 12
   policy_dt: 0.02
@@ -30,9 +30,6 @@ policy:
       min: -100.0
       max: 100.0
   observations:
-    stack:
-      length: 1
-      order: newest_first
     terms:
       base_ang_vel_B:
         process_order: [clip, scale]

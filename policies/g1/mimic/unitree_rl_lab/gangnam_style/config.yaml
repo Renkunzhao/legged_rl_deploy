@@ -36,9 +36,6 @@ policy:
         -0.00715]
 
   observations:
-    stack:
-      length: 1
-      order: newest_first
     terms:
       mimic:
         params:

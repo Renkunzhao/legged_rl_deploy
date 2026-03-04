@@ -88,9 +88,6 @@ policy:
   #   - base_lin_vel        (set to None in flat_env_cfg.py)
   # ---------------------------------------------------------------------------
   observations:
-    stack:
-      length: 1
-      order: newest_first
     terms:
       mimic:
         params:

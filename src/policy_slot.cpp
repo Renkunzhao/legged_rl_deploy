@@ -36,6 +36,11 @@ std::vector<float> quatToRpy(const Eigen::Quaterniond& q_in) {
           static_cast<float>(yaw)};
 }
 
+size_t maxLag(const std::vector<size_t>& lags) {
+  if (lags.empty()) return 0;
+  return *std::max_element(lags.begin(), lags.end());
+}
+
 } // namespace
 
 PolicySlot::PolicySlot(const std::string& name, const YAML::Node& policyNode,
@@ -86,15 +91,25 @@ void PolicySlot::init() {
   if (!observations || !observations.IsMap()) {
     throw std::runtime_error("[PolicySlot:" + name_ + "] observations missing");
   }
-
   if (observations["stack"]) {
-    stack_len_ = observations["stack"]["length"].as<size_t>(1);
-    stack_order_ = observations["stack"]["order"].as<std::string>("oldest_first");
+    throw std::runtime_error("[PolicySlot:" + name_ +
+                             "] observations.stack is no longer supported; use "
+                             "term length/order/history_warmup or observations.assemble");
   }
-  history_warmup_ = observations["history_warmup"].as<std::string>("repeat_first");
+  if (observations["layout"]) {
+    throw std::runtime_error("[PolicySlot:" + name_ +
+                             "] observations.layout is no longer supported; use "
+                             "observations.assemble");
+  }
+  if (observations["history_warmup"]) {
+    throw std::runtime_error("[PolicySlot:" + name_ +
+                             "] observations.history_warmup moved to each term or "
+                             "assemble block");
+  }
 
   registryObsTerms(observations["terms"]);
-  parseObsLayout(observations);
+  parseAssemble(observations);
+  computeTermHistoryCapacities();
   initMimicSource();
 
   std::cout << "[PolicySlot:" << name_ << "] init done. input_dim=" << input_dim_
@@ -104,10 +119,11 @@ void PolicySlot::init() {
 void PolicySlot::reset(const LeggedState& state) {
   std::fill(input_buf_.begin(), input_buf_.end(), 0.0f);
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
-  obs_hist_.clear();
+  std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
+  for (auto& now : term_now_) std::fill(now.begin(), now.end(), 0.0f);
+  for (auto& hist : term_hist_) hist.clear();
   has_valid_output_ = false;
 
-  // Hold current posture after reset until first valid policy output arrives.
   if (output_buf_.size() != output_dim_) {
     output_buf_.assign(output_dim_, 0.0f);
   }
@@ -133,6 +149,7 @@ void PolicySlot::reset(const LeggedState& state) {
 void PolicySlot::registryObsTerms(YAML::Node node) {
   obs_terms_.clear();
   obs_term_indices_.clear();
+  term_default_lags_.clear();
   has_mimic_term_ = false;
   mimic_params_ = YAML::Node();
 
@@ -156,6 +173,22 @@ void PolicySlot::registryObsTerms(YAML::Node node) {
     t.offset = off;
     off += t.dim;
 
+    t.has_default_length = static_cast<bool>(term_node["length"]);
+    t.default_length = term_node["length"].as<size_t>(1);
+    if (t.default_length == 0) {
+      throw std::runtime_error("[PolicySlot:" + name_ + "] observations.terms." + t.name +
+                               ".length must be > 0");
+    }
+    t.default_order = parseOrderSpec(term_node["order"]);
+    t.default_history_warmup =
+        parseWarmup(term_node["history_warmup"], HistoryWarmupMode::RepeatFirst);
+
+    if (t.default_order.mode == OrderMode::Explicit && t.has_default_length &&
+        t.default_length != t.default_order.lags.size()) {
+      throw std::runtime_error("[PolicySlot:" + name_ + "] observations.terms." + t.name +
+                               ".length must match explicit order size");
+    }
+
     auto maybe = Processor::TryLoad(term_node);
     if (maybe) t.proc = std::move(*maybe);
 
@@ -169,8 +202,18 @@ void PolicySlot::registryObsTerms(YAML::Node node) {
 
   obs_dim_ = off;
   obs_now_.assign(obs_dim_, 0.0f);
-  zeros_frame_.assign(obs_dim_, 0.0f);
-  obs_hist_.clear();
+  term_now_.assign(obs_terms_.size(), {});
+  term_zero_.assign(obs_terms_.size(), {});
+  term_hist_.assign(obs_terms_.size(), {});
+  term_history_capacity_.assign(obs_terms_.size(), 0);
+  term_default_lags_.reserve(obs_terms_.size());
+
+  for (size_t i = 0; i < obs_terms_.size(); ++i) {
+    const auto& term = obs_terms_[i];
+    term_now_[i].assign(term.dim, 0.0f);
+    term_zero_[i].assign(term.dim, 0.0f);
+    term_default_lags_.push_back(resolveLags(term.default_order, term.default_length));
+  }
 }
 
 void PolicySlot::calculateObsTerm(ObsTerm& term) {
@@ -238,93 +281,97 @@ void PolicySlot::calculateObsTerm(ObsTerm& term) {
   }
 }
 
-void PolicySlot::parseObsLayout(const YAML::Node& observations) {
-  if (history_warmup_ != "repeat_first" && history_warmup_ != "zero") {
-    throw std::runtime_error("[PolicySlot:" + name_ +
-                             "] observations.history_warmup must be repeat_first or zero");
-  }
+void PolicySlot::parseAssemble(const YAML::Node& observations) {
+  assemble_blocks_.clear();
+  use_assemble_ = false;
 
-  const YAML::Node layout = observations["layout"];
-  use_layout_ = layout && layout.IsMap();
-  layout_blocks_.clear();
-  layout_input_dim_ = 0;
-  history_capacity_ = 0;
-
-  if (!use_layout_) {
-    layout_input_dim_ = obs_dim_ * stack_len_;
-    if (layout_input_dim_ != input_dim_) {
-      throw std::runtime_error(
-          "[PolicySlot:" + name_ + "] input_dim mismatch: obs_dim=" +
-          std::to_string(obs_dim_) + " stack_len=" + std::to_string(stack_len_) +
-          " expected=" + std::to_string(layout_input_dim_) +
-          " cfg input_dim=" + std::to_string(input_dim_));
+  const YAML::Node assemble = observations["assemble"];
+  if (!assemble) {
+    size_t expected_dim = 0;
+    for (size_t i = 0; i < obs_terms_.size(); ++i) {
+      expected_dim += obs_terms_[i].dim * term_default_lags_[i].size();
     }
-    history_capacity_ = stack_len_;
+    if (expected_dim != input_dim_) {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] input_dim mismatch: default term-major expected=" +
+                               std::to_string(expected_dim) + " cfg input_dim=" +
+                               std::to_string(input_dim_));
+    }
     return;
   }
 
-  const YAML::Node blocks = layout["blocks"];
-  if (!blocks || !blocks.IsSequence() || blocks.size() == 0) {
+  if (!assemble.IsSequence() || assemble.size() == 0) {
     throw std::runtime_error("[PolicySlot:" + name_ +
-                             "] observations.layout.blocks must be non-empty sequence");
+                             "] observations.assemble must be a non-empty sequence");
   }
 
-  for (auto bnode : blocks) {
-    ObsLayoutBlock block;
-    const std::string kind = bnode["kind"].as<std::string>();
-
-    if (kind == "current_frame") {
-      block.kind = LayoutKind::CurrentFrame;
-      block.dim = obs_dim_;
-    } else if (kind == "history_frame") {
-      block.kind = LayoutKind::HistoryFrame;
-      block.length = bnode["length"].as<size_t>();
-      if (block.length == 0) {
-        throw std::runtime_error("[PolicySlot:" + name_ +
-                                 "] history_frame length must be > 0");
-      }
-      block.order = bnode["order"].as<std::string>("oldest_first");
-      if (block.order != "oldest_first" && block.order != "newest_first") {
-        throw std::runtime_error("[PolicySlot:" + name_ +
-                                 "] history_frame order must be oldest_first/newest_first");
-      }
-      block.include_current = bnode["include_current"].as<bool>(false);
-      block.dim = block.length * obs_dim_;
-
-      const size_t needed_prev =
-          block.include_current ? (block.length > 0 ? block.length - 1 : 0) : block.length;
-      history_capacity_ = std::max(history_capacity_, needed_prev);
-    } else if (kind == "current_terms") {
-      block.kind = LayoutKind::CurrentTerms;
-      YAML::Node terms = bnode["terms"];
-      if (!terms || !terms.IsSequence() || terms.size() == 0) {
-        throw std::runtime_error("[PolicySlot:" + name_ +
-                                 "] current_terms requires non-empty terms sequence");
-      }
-      for (auto tnode : terms) {
-        const std::string tname = tnode.as<std::string>();
-        auto it = obs_term_indices_.find(tname);
-        if (it == obs_term_indices_.end()) {
-          throw std::runtime_error("[PolicySlot:" + name_ +
-                                   "] current_terms unknown term: " + tname);
-        }
-        block.term_indices.push_back(it->second);
-        block.dim += obs_terms_[it->second].dim;
-      }
-    } else {
+  use_assemble_ = true;
+  size_t expected_dim = 0;
+  for (const auto& bnode : assemble) {
+    if (!bnode.IsMap()) {
       throw std::runtime_error("[PolicySlot:" + name_ +
-                               "] unknown layout block kind: " + kind);
+                               "] each observations.assemble block must be a map");
     }
 
-    layout_input_dim_ += block.dim;
-    layout_blocks_.push_back(std::move(block));
+    AssembleBlock block;
+    const YAML::Node terms = bnode["terms"];
+    if (!terms || !terms.IsSequence() || terms.size() == 0) {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] assemble block requires non-empty terms sequence");
+    }
+
+    for (const auto& tnode : terms) {
+      const std::string tname = tnode.as<std::string>();
+      const auto it = obs_term_indices_.find(tname);
+      if (it == obs_term_indices_.end()) {
+        throw std::runtime_error("[PolicySlot:" + name_ +
+                                 "] assemble block unknown term: " + tname);
+      }
+      block.term_indices.push_back(it->second);
+      block.dim += obs_terms_[it->second].dim;
+    }
+
+    block.order = parseOrderSpec(bnode["order"]);
+    block.has_length = static_cast<bool>(bnode["length"]);
+    block.length = bnode["length"].as<size_t>(1);
+    if (block.length == 0) {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] assemble block length must be > 0");
+    }
+    if (block.order.mode == OrderMode::Explicit && block.has_length &&
+        block.length != block.order.lags.size()) {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] assemble block length must match explicit order size");
+    }
+
+    block.history_warmup =
+        parseWarmup(bnode["history_warmup"], HistoryWarmupMode::RepeatFirst);
+    block.lags = resolveLags(block.order, block.length);
+    expected_dim += block.dim * block.lags.size();
+    assemble_blocks_.push_back(std::move(block));
   }
 
-  if (layout_input_dim_ != input_dim_) {
-    throw std::runtime_error(
-        "[PolicySlot:" + name_ + "] input_dim mismatch: layout expected=" +
-        std::to_string(layout_input_dim_) + " cfg input_dim=" +
-        std::to_string(input_dim_));
+  if (expected_dim != input_dim_) {
+    throw std::runtime_error("[PolicySlot:" + name_ +
+                             "] input_dim mismatch: assemble expected=" +
+                             std::to_string(expected_dim) + " cfg input_dim=" +
+                             std::to_string(input_dim_));
+  }
+}
+
+void PolicySlot::computeTermHistoryCapacities() {
+  term_history_capacity_.assign(obs_terms_.size(), 0);
+
+  for (size_t i = 0; i < obs_terms_.size(); ++i) {
+    term_history_capacity_[i] = maxLag(term_default_lags_[i]);
+  }
+
+  for (const auto& block : assemble_blocks_) {
+    const size_t block_max_lag = maxLag(block.lags);
+    for (const size_t term_idx : block.term_indices) {
+      term_history_capacity_[term_idx] =
+          std::max(term_history_capacity_[term_idx], block_max_lag);
+    }
   }
 }
 
@@ -392,7 +439,8 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
     mimic_source_->step(state);
   }
 
-  for (const auto& term : obs_terms_) {
+  for (size_t term_idx = 0; term_idx < obs_terms_.size(); ++term_idx) {
+    const auto& term = obs_terms_[term_idx];
     std::vector<float> v(term.dim, 0.0f);
 
     if (term.name == "constants") {
@@ -503,102 +551,53 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
     }
 
     if (term.proc) term.proc->process(v);
+    term_now_[term_idx] = v;
     std::copy(v.begin(), v.end(), obs_now_.begin() + term.offset);
   }
 }
 
-void PolicySlot::stackObsGlobal() {
-  obs_hist_.push_back(obs_now_);
-  while (obs_hist_.size() > stack_len_) obs_hist_.pop_front();
-  while (obs_hist_.size() < stack_len_) obs_hist_.push_front(obs_hist_.front());
-
+void PolicySlot::assembleDefaultTermMajor() {
   size_t out = 0;
-  if (stack_order_ == "newest_first") {
-    for (size_t k = 0; k < stack_len_; ++k) {
-      const auto& fr = obs_hist_[stack_len_ - 1 - k];
-      std::copy(fr.begin(), fr.end(), input_buf_.begin() + out);
-      out += obs_dim_;
+  for (size_t term_idx = 0; term_idx < obs_terms_.size(); ++term_idx) {
+    for (const size_t lag : term_default_lags_[term_idx]) {
+      const auto& sample =
+          sampleTermAtLag(term_idx, lag, obs_terms_[term_idx].default_history_warmup);
+      std::copy(sample.begin(), sample.end(), input_buf_.begin() + out);
+      out += sample.size();
     }
-  } else {
-    for (size_t k = 0; k < stack_len_; ++k) {
-      const auto& fr = obs_hist_[k];
-      std::copy(fr.begin(), fr.end(), input_buf_.begin() + out);
-      out += obs_dim_;
-    }
+  }
+
+  if (out != input_buf_.size()) {
+    throw std::runtime_error("[PolicySlot:" + name_ +
+                             "] internal error: default term-major packed dim mismatch");
   }
 }
 
-void PolicySlot::assembleObsByLayout() {
+void PolicySlot::assembleFromBlocks() {
   size_t out = 0;
-  for (const auto& block : layout_blocks_) {
-    if (block.kind == LayoutKind::CurrentFrame) {
-      std::copy(obs_now_.begin(), obs_now_.end(), input_buf_.begin() + out);
-      out += obs_dim_;
-      continue;
-    }
-
-    if (block.kind == LayoutKind::CurrentTerms) {
+  for (const auto& block : assemble_blocks_) {
+    for (const size_t lag : block.lags) {
       for (const size_t term_idx : block.term_indices) {
-        const auto& term = obs_terms_[term_idx];
-        std::copy(obs_now_.begin() + term.offset,
-                  obs_now_.begin() + term.offset + term.dim,
-                  input_buf_.begin() + out);
-        out += term.dim;
-      }
-      continue;
-    }
-
-    std::vector<const std::vector<float>*> timeline;
-    timeline.reserve(obs_hist_.size() + 1);
-    for (const auto& fr : obs_hist_) timeline.push_back(&fr);
-    const bool inject_current_for_warmup =
-        !block.include_current &&
-        history_warmup_ == "repeat_first" &&
-        timeline.size() < block.length;
-    if (block.include_current || inject_current_for_warmup) {
-      timeline.push_back(&obs_now_);
-    }
-
-    const size_t take = std::min(block.length, timeline.size());
-    const size_t pad = block.length - take;
-
-    const std::vector<float>* pad_frame = &zeros_frame_;
-    if (history_warmup_ == "repeat_first" && !timeline.empty()) {
-      pad_frame = timeline.front();
-    }
-
-    std::vector<const std::vector<float>*> selected;
-    selected.reserve(block.length);
-    for (size_t i = 0; i < pad; ++i) selected.push_back(pad_frame);
-    for (size_t i = timeline.size() - take; i < timeline.size(); ++i) {
-      selected.push_back(timeline[i]);
-    }
-
-    if (block.order == "newest_first") {
-      for (size_t i = 0; i < selected.size(); ++i) {
-        const auto* fr = selected[selected.size() - 1 - i];
-        std::copy(fr->begin(), fr->end(), input_buf_.begin() + out);
-        out += obs_dim_;
-      }
-    } else {
-      for (const auto* fr : selected) {
-        std::copy(fr->begin(), fr->end(), input_buf_.begin() + out);
-        out += obs_dim_;
+        const auto& sample = sampleTermAtLag(term_idx, lag, block.history_warmup);
+        std::copy(sample.begin(), sample.end(), input_buf_.begin() + out);
+        out += sample.size();
       }
     }
   }
 
   if (out != input_buf_.size()) {
     throw std::runtime_error("[PolicySlot:" + name_ +
-                             "] internal error: layout packed dim mismatch");
+                             "] internal error: assemble packed dim mismatch");
   }
 }
 
-void PolicySlot::pushObsHistory() {
-  if (history_capacity_ == 0) return;
-  obs_hist_.push_back(obs_now_);
-  while (obs_hist_.size() > history_capacity_) {
-    obs_hist_.pop_front();
+void PolicySlot::pushTermHistory() {
+  for (size_t term_idx = 0; term_idx < obs_terms_.size(); ++term_idx) {
+    const size_t cap = term_history_capacity_[term_idx];
+    if (cap == 0) continue;
+    auto& hist = term_hist_[term_idx];
+    hist.push_back(term_now_[term_idx]);
+    while (hist.size() > cap) hist.pop_front();
   }
 }
 
@@ -607,14 +606,12 @@ void PolicySlot::updatePolicy(const LeggedState& state,
                               size_t loop_cnt, double ll_dt) {
   assembleObsFrame(state, gamepad, loop_cnt, ll_dt);
 
-  if (use_layout_) {
-    assembleObsByLayout();
-    pushObsHistory();
-  } else if (stack_len_ == 1) {
-    std::copy(obs_now_.begin(), obs_now_.end(), input_buf_.begin());
+  if (use_assemble_) {
+    assembleFromBlocks();
   } else {
-    stackObsGlobal();
+    assembleDefaultTermMajor();
   }
+  pushTermHistory();
 
   std::vector<float> raw_output(output_dim_, 0.0f);
   policy_runner_->infer(input_buf_.data(), raw_output.data());
@@ -650,11 +647,89 @@ void PolicySlot::update(const LeggedState& state,
 
 const PolicySlot::ObsTerm& PolicySlot::getObsTermByName(
     const std::string& name) const {
-  auto it = obs_term_indices_.find(name);
+  const auto it = obs_term_indices_.find(name);
   if (it == obs_term_indices_.end()) {
     throw std::runtime_error("[PolicySlot:" + name_ + "] obs term not found: " + name);
   }
   return obs_terms_[it->second];
+}
+
+PolicySlot::ObsOrderSpec PolicySlot::parseOrderSpec(const YAML::Node& node) {
+  ObsOrderSpec spec;
+  if (!node || node.IsNull()) return spec;
+
+  if (node.IsScalar()) {
+    const std::string order = node.as<std::string>();
+    if (order == "oldest_first") {
+      spec.mode = OrderMode::OldestFirst;
+      return spec;
+    }
+    if (order == "newest_first") {
+      spec.mode = OrderMode::NewestFirst;
+      return spec;
+    }
+    throw std::runtime_error("order must be oldest_first, newest_first, or an integer "
+                             "sequence");
+  }
+
+  if (!node.IsSequence() || node.size() == 0) {
+    throw std::runtime_error("explicit order must be a non-empty integer sequence");
+  }
+
+  spec.mode = OrderMode::Explicit;
+  spec.lags.reserve(node.size());
+  for (const auto& lnode : node) {
+    const int lag = lnode.as<int>();
+    if (lag < 0) {
+      throw std::runtime_error("explicit order entries must be >= 0");
+    }
+    spec.lags.push_back(static_cast<size_t>(lag));
+  }
+  return spec;
+}
+
+std::vector<size_t> PolicySlot::resolveLags(const ObsOrderSpec& spec, size_t length) {
+  if (spec.mode == OrderMode::Explicit) return spec.lags;
+  if (length == 0) {
+    throw std::runtime_error("length must be > 0 when order is not explicit");
+  }
+
+  std::vector<size_t> lags;
+  lags.reserve(length);
+  if (spec.mode == OrderMode::NewestFirst) {
+    for (size_t lag = 0; lag < length; ++lag) lags.push_back(lag);
+    return lags;
+  }
+
+  for (size_t lag = length; lag-- > 0;) lags.push_back(lag);
+  return lags;
+}
+
+PolicySlot::HistoryWarmupMode PolicySlot::parseWarmup(
+    const YAML::Node& node, HistoryWarmupMode default_mode) {
+  if (!node || node.IsNull()) return default_mode;
+
+  const std::string mode = node.as<std::string>();
+  if (mode == "repeat_first") return HistoryWarmupMode::RepeatFirst;
+  if (mode == "zero") return HistoryWarmupMode::Zero;
+  throw std::runtime_error("history_warmup must be repeat_first or zero");
+}
+
+const std::vector<float>& PolicySlot::sampleTermAtLag(
+    size_t term_idx, size_t lag, HistoryWarmupMode warmup) const {
+  if (lag == 0) return term_now_[term_idx];
+
+  const auto& hist = term_hist_[term_idx];
+  if (hist.size() >= lag) {
+    return hist[hist.size() - lag];
+  }
+  if (warmup == HistoryWarmupMode::Zero) {
+    return term_zero_[term_idx];
+  }
+  if (!hist.empty()) {
+    return hist.front();
+  }
+  return term_now_[term_idx];
 }
 
 std::vector<std::string> PolicySlot::loadMimicTerms(const YAML::Node& params) {
