@@ -19,8 +19,8 @@
       "id": "RosDistro",
       "type": "pickString",
       "description": "Select ROS distribution",
-      "options": ["humble", "foxy", "galactic"],
-      "default": "humble"
+      "options": ["jazzy", "humble", "foxy", "galactic"],
+      "default": "jazzy"
     },
     {
         "id": "Config Path",
@@ -83,7 +83,7 @@
         "${input:RosDistro}",
         "colcon", "build", "--event-handlers", "console_direct+",
         "--packages-up-to", "legged_rl_deploy",
-        "--cmake-args", "-DCMAKE_BUILD_TYPE=${input:BuildType}"
+        "--cmake-args", "-DCMAKE_BUILD_TYPE=${input:BuildType}", "-DPython3_EXECUTABLE=/usr/bin/python3"
       ],
       "group": "build",
       "options": { "cwd": "${workspaceFolder}" },
