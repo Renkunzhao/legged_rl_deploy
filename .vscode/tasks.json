@@ -2,6 +2,13 @@
   "version": "2.0.0",
   "inputs": [
     {
+      "id": "RosDistro",
+      "type": "pickString",
+      "description": "Select ROS distribution",
+      "options": ["humble", "foxy", "galactic"],
+      "default": "humble"
+    },
+    {
       "id": "BuildType",
       "type": "pickString",
       "description": "Select build type",
@@ -79,8 +86,7 @@
       "command": "bash",
       "args": [
         "scripts/run.sh",
-        "${input:NetworkInterface}",
-        "${input:RosDistro}",
+        "lo", "${input:RosDistro}",
         "colcon", "build", "--event-handlers", "console_direct+",
         "--packages-up-to", "legged_rl_deploy",
         "--cmake-args", "-DCMAKE_BUILD_TYPE=${input:BuildType}", "-DPython3_EXECUTABLE=/usr/bin/python3"
@@ -97,8 +103,7 @@
       "command": "bash",
       "args": [
         "scripts/run.sh",
-        "${input:NetworkInterface}",
-        "${input:RosDistro}",
+        "${input:NetworkInterface}", "${input:RosDistro}",
         "ros2", "run", "legged_rl_deploy", "legged_rl_deploy_node",
         "${input:NetworkInterface}",
         "${workspaceFolder}/${input:Config Path}"
