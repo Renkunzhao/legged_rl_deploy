@@ -90,7 +90,7 @@ Some configs in this repo are experiment-specific derivatives or internally reta
 
 ### Required
 
-- [`unitree_lowlevel`](../unitree_lowlevel/README.md) built in the same workspace
+- [`unitree_lowlevel`](https://github.com/Renkunzhao/unitree_lowlevel) built in the same workspace
 - ROS 2 workspace already initialized and buildable with `colcon`
 
 ### Recommended for the bundled policies
