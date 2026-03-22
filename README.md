@@ -1,96 +1,268 @@
 # Legged RL Deploy
 
-A deployment framework for reinforcement learning (RL) policies on Unitree Go2 and G1 robots.
+`legged_rl_deploy` deploys learned policies on top of `unitree_lowlevel` for Unitree Go2 and G1 robots.
 
-## Features
+It provides:
 
-- Configurable via `config.yaml`
-- Support for TorchScript and ONNX Runtime inference
-- Multiple pretrained policies included
+- single-policy deployment from a single `config.yaml`
+- multi-policy deployment with gamepad-triggered switching via `fsm`
+- ONNX Runtime and LibTorch inference backends
+- local-file and Redis-based mimic motion sources
+- sample policies and deployment configs for Go2 and G1
 
-### Policy sources
+## Overview
 
+This package inherits the low-level control loop, safety logic, and hardware adapters from [`unitree_lowlevel`](../unitree_lowlevel/README.md). The RL policy only becomes active after the low-level controller enters `HighController`.
+
+The deployed config is passed directly to:
+
+```bash
+ros2 run legged_rl_deploy legged_rl_deploy_node <network-interface> <config-file>
 ```
+
+Two config styles are supported:
+
+- Single-policy config: top-level `policy:` section
+- Multi-policy config: top-level `fsm:` section with multiple sub-policies and gamepad transitions
+
+Video demo:
+
+- https://renkunzhao.github.io/present/slides/phd-interview/#/5
+
+## Policy Layout
+
+The repository already includes several example policies:
+
+```text
 policies/
 ├── go2/
-│   ├── velocity/
-│   │   ├── unitree_rl_lab/    # unitree_rl_lab
-│   │   ├── mjlab/             # mjlab
-│   │   └── aba/               # mjlab
-│   ├── hop/                   # My_unitree_go2_gym
-│   ├── trot/                  # My_unitree_go2_gym
-│   ├── handstand/             # My_unitree_go2_gym
-│   ├── legstand/              # My_unitree_go2_gym
-│   └── spring_jump/           # My_unitree_go2_gym
+│   ├── My_unitree_go2_gym/
+│   │   ├── trot/
+│   │   ├── hop/
+│   │   ├── handstand/
+│   │   ├── legstand/
+│   │   ├── spring_jump/
+│   │   └── multi-policies.yaml
+│   ├── mjlab/
+│   │   ├── velocity/
+│   │   ├── hop/
+│   │   ├── mimic/
+│   │   └── multi-policies.yaml
+│   ├── unitree_rl_lab/
+│   │   └── velocity/
+│   └── aba/
+│       └── velocity/
 └── g1/
     ├── velocity/
-    │   └── unitree_rl_mjlab/  # unitree_rl_mjlab
-    └── mimic/
-        ├── gangnam_style/     # unitree_rl_lab
-        ├── dance_102/         # unitree_rl_lab
-        ├── dance1_subject2/   # unitree_rl_mjlab
-        └── pose/              # whole_body_tracking
-        └── LAFAN1_Retargeting # whole_body_tracking
+    │   ├── unitree_rl_mjlab/
+    │   └── mjlab/
+    ├── mimic/
+    │   ├── unitree_rl_lab/
+    │   │   ├── dance_102/
+    │   │   └── gangnam_style/
+    │   ├── unitree_rl_mjlab/
+    │   │   └── dance1_subject2/
+    │   ├── mjlab/
+    │   │   └── dance1_subject1/
+    │   ├── whole_body_tracking/
+    │   │   └── jumps1_subject1/
+    │   └── TWIST2/
+    ├── aba/
+    │   ├── velocity/
+    │   ├── dance102/
+    │   ├── jumps1_subject1/
+    │   └── multi-policies.yaml
+    └── multi-policies.yaml
 ```
 
+Included policy sources referenced by this repo:
+
 | Source | Link |
-|--------|------|
+| --- | --- |
 | unitree_rl_lab | [github.com/unitreerobotics/unitree_rl_lab](https://github.com/unitreerobotics/unitree_rl_lab) |
 | My_unitree_go2_gym | [github.com/yusongmin1/My_unitree_go2_gym](https://github.com/yusongmin1/My_unitree_go2_gym) |
 | mjlab | [github.com/mujocolab/mjlab](https://github.com/mujocolab/mjlab) |
 | unitree_rl_mjlab | [github.com/mujocolab/unitree_rl_mjlab](https://github.com/mujocolab/unitree_rl_mjlab) |
 
-*Thanks to the authors of these projects for their contributions.*
+Some configs in this repo are experiment-specific derivatives or internally retargeted motions.
 
-## Video Demonstrations
+## Dependencies
 
-- [Go2 Hop (Bilibili)](https://www.bilibili.com/video/BV1Jh6eBhEYz/?share_source=copy_web&vd_source=b99eccd82d555461fbd654f2947e809b)
+### Required
 
-## Installation
+- [`unitree_lowlevel`](../unitree_lowlevel/README.md) built in the same workspace
+- ROS 2 workspace already initialized and buildable with `colcon`
 
-### Dependencies
+### Recommended for the bundled policies
 
-- [LibTorch](LibTorch.md)
+Most bundled policies use `backend: ort`, so ONNX Runtime is effectively required for the default examples:
 
-- [ORT](scripts/get_ort.sh)
+```bash
+cd $WORKSPACE/src/legged_rl_deploy
+./scripts/get_ort.sh
+```
 
-- [unitree_lowlevel](https://github.com/Renkunzhao/unitree_lowlevel.git)
+This downloads ONNX Runtime into `thirdparty/onnxruntime`.
 
-### Build
+### Optional: LibTorch
+
+Use LibTorch only if your policy config sets `backend: libtorch` or `backend: torch`.
+
+Helper script:
+
+```bash
+cd $WORKSPACE/src/legged_rl_deploy
+./scripts/get_torch.sh
+```
+
+Platform-specific notes are in [LibTorch.md](LibTorch.md).
+
+### Optional: Redis mimic source
+
+Redis support is compiled in only when `hiredis` is available at build time:
+
+```bash
+sudo apt install -y libhiredis-dev redis-tools
+```
+
+This is only needed for configs using `mimic.params.source: redis`, such as `policies/g1/mimic/TWIST2/config.yaml`.
+
+## Build
+
+Clone the repository into the workspace:
 
 ```bash
 cd unitree_ws/src
 git clone https://github.com/Renkunzhao/legged_rl_deploy.git
-cd ..
-
-# Ensure CMAKE_PREFIX_PATH and LD_LIBRARY_PATH include torch paths 
-source install/setup.bash
-colcon build --packages-up-to legged_rl_deploy 
 ```
 
-### Run
+If you plan to use:
+
+- ONNX Runtime: run `./scripts/get_ort.sh` first
+- LibTorch: install it and set environment variables as described in [LibTorch.md](LibTorch.md) before building
+- Redis mimic: install `libhiredis-dev` before building
+
+Then build:
+
 ```bash
-# Run test and stop the default controller (run once per boot)
-source src/unitree_lowlevel/scripts/setup.sh <network-interface> $ROS_DISTRO
-./build/unitree_sdk2/bin/go2_stand_example $NetworkInterface
-
-source src/unitree_lowlevel/scripts/setup.sh <network-interface> $ROS_DISTRO
-ros2 run legged_rl_deploy legged_rl_deploy_node $NetworkInterface $WORKSPACE/src/legged_rl_deploy/config/go2-trot.yaml
+cd unitree_ws
+source /opt/ros/<ros-distro>/setup.bash
+colcon build --packages-up-to legged_rl_deploy --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+source install/setup.bash
 ```
 
-### TeleOP
+> Note: The explicit `Python3_EXECUTABLE` avoids clean-build failures when `python3` points to a Conda environment without the ROS build dependencies.
+
+## Running
+
+### Hardware preparation
+
+`legged_rl_deploy` still relies on the low-level controller setup from `unitree_lowlevel`.
+
+For Go2 hardware, stop the default controller once after each boot:
+
+```bash
+source src/unitree_lowlevel/scripts/setup.sh <network-interface> <ros-distro>
+$WORKSPACE/build/unitree_sdk2/bin/go2_stand_example <network-interface>
+```
+
+For G1 hardware, enter `Debug Mode` first as described in the [`unitree_lowlevel` documentation](../unitree_lowlevel/README.md).
+
+### Recommended launcher
+
+From the workspace root, use the helper wrapper:
+
+```bash
+./src/legged_rl_deploy/scripts/run.sh <network-interface> <ros-distro> ros2 run legged_rl_deploy legged_rl_deploy_node <network-interface> <config-file>
+```
+
+The wrapper:
+
+- sources `unitree_lowlevel/scripts/setup.sh`
+- sets `CMAKE_PREFIX_PATH` and `LD_LIBRARY_PATH` for Torch on x86_64
+- sets the corresponding Torch paths from Python on aarch64
+
+### Runtime behavior
+
+The node inherits the same safety confirmation as `unitree_lowlevel`:
+
+```text
+WARNING: Make sure the robot is hung up or lying on the ground.
+Press Enter to continue...
+```
+
+In practice, the flow is:
+
+1. Start the node
+2. Confirm the safety prompt
+3. Use the low-level controller gamepad flow to reach `FixStand`
+4. Press `START` to enter `HighController`
+5. The RL policy then takes control
+
+If you are using a multi-policy config, policy switching is handled by the `fsm.policies.*.transitions` entries in the YAML file.
+
+## Config Notes
+
+Single-policy configs typically define:
+
+- `llc_config_file`: low-level config from `unitree_lowlevel`
+- `ll_dt`: low-level timestep override
+- `policy.backend`: `ort`, `onnxruntime`, `torch`, or `libtorch`
+- `policy.model_path`: model file path relative to `$WORKSPACE`
+- `policy.observations`: observation terms and assembly layout
+- `policy.actions`: output post-processing
+- `policy.commands`: command preprocessing
+
+Multi-policy configs additionally define:
+
+- `clip_final_tau`: optional torque-mode output instead of PD targets
+- `fsm.default`: policy activated when entering `HighController`
+- `fsm.policies.<name>.config`: sub-policy config path
+- `fsm.policies.<name>.transitions`: button mappings for switching
+
+## Teleop and Redis Mimic
+
+For Redis-based mimic motion:
+
 ```bash
 sudo apt install -y libhiredis-dev redis-tools
+```
 
+Rebuild `legged_rl_deploy` after installing `hiredis`, otherwise Redis support will remain disabled in the compiled binary.
+
+You can inspect Redis keys with:
+
+```bash
 redis-cli -h 127.0.0.1 -p 6379 -n 0 --scan
 ```
 
-#### Troubleshooting
+## Troubleshooting
 
-**CMake CUDA Dialect Error:**
-```
-Target "cmTC_dfc1b" requires the language dialect "CUDA17" (with compiler extensions), 
-but CMake does not know the compile flags to use to enable it.
-```
-**Solution:** Update CMake to a newer version that supports CUDA17.
+### `backend=onnxruntime requested, but built without USE_ORT`
 
+Run:
+
+```bash
+cd $WORKSPACE/src/legged_rl_deploy
+./scripts/get_ort.sh
+```
+
+Then rebuild the package.
+
+### `backend=libtorch requested, but built without USE_TORCH`
+
+Install LibTorch, export the required paths from [LibTorch.md](LibTorch.md), and rebuild the package.
+
+### Redis mimic complains that hiredis is missing
+
+Install `libhiredis-dev`, then rebuild the package so `USE_HIREDIS` is enabled.
+
+### CMake CUDA dialect error
+
+If you see an error like:
+
+```text
+Target "cmTC_xxxx" requires the language dialect "CUDA17", but CMake does not know the compile flags to use to enable it.
+```
+
+Update CMake to a newer version that supports CUDA17.
