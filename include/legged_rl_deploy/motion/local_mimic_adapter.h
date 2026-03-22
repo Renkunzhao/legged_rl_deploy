@@ -51,6 +51,9 @@ private:
   Eigen::VectorXf jointPosRaw() const;
   Eigen::VectorXf jointVelRaw() const;
   Eigen::Quaternionf rootQuaternion() const;
+  Eigen::Quaternionf anchorQuaternion(
+      const Eigen::Quaternionf& imu_quat_w,
+      const Eigen::VectorXf& joint_pos) const;
 
   Eigen::VectorXf jointPosTrainingOrder() const;
   Eigen::VectorXf jointVelTrainingOrder() const;

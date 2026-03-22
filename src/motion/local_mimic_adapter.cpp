@@ -14,6 +14,18 @@
 
 namespace legged_rl_deploy {
 
+namespace {
+
+bool usesG1TorsoAnchor(const LeggedModel& robot_model) {
+  const auto& joint_order = robot_model.jointOrder();
+  return joint_order.size() > 14 &&
+         joint_order[12] == "waist_yaw_joint" &&
+         joint_order[13] == "waist_roll_joint" &&
+         joint_order[14] == "waist_pitch_joint";
+}
+
+} // namespace
+
 LocalMimicAdapter::LocalMimicAdapter(Config cfg, const LeggedModel& robot_model,
                                      std::vector<size_t> joint_ids_map,
                                      size_t output_dim)
@@ -70,9 +82,9 @@ void LocalMimicAdapter::reset(const LeggedState& state, float policy_dt) {
   update(time_start_);
 
   const Eigen::VectorXf ref_jp_urdf = jointPosUrdfOrder();
-  const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(rootQuaternion(), ref_jp_urdf);
-  const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(
-      state.base_quat().cast<float>(), state.joint_pos().cast<float>());
+  const auto ref_q = anchorQuaternion(rootQuaternion(), ref_jp_urdf);
+  const auto real_q =
+      anchorQuaternion(state.base_quat().cast<float>(), state.joint_pos().cast<float>());
 
   const Eigen::Matrix3f ref_yaw =
       legged_base::extractYawQuaternion(ref_q).toRotationMatrix();
@@ -196,9 +208,9 @@ void LocalMimicAdapter::buildOutput(const LeggedState& state) {
 
     if (term == "motion_anchor_ori_b") {
       const Eigen::VectorXf ref_jp = jointPosUrdfOrder();
-      const auto ref_q = G1Adapter::getTorsoQuatFromImuAndWaist(rootQuaternion(), ref_jp);
-      const auto real_q = G1Adapter::getTorsoQuatFromImuAndWaist(
-          state.base_quat().cast<float>(), state.joint_pos().cast<float>());
+      const auto ref_q = anchorQuaternion(rootQuaternion(), ref_jp);
+      const auto real_q = anchorQuaternion(state.base_quat().cast<float>(),
+                                           state.joint_pos().cast<float>());
       const auto rot_ = (yaw_align_ * ref_q).conjugate() * real_q;
       const Eigen::Matrix3f rot = rot_.toRotationMatrix().transpose();
 
@@ -231,6 +243,22 @@ Eigen::VectorXf LocalMimicAdapter::jointVelRaw() const {
 
 Eigen::Quaternionf LocalMimicAdapter::rootQuaternion() const {
   return onnx_eval_ ? onnx_root_quat_ : root_quaternions_[frame_];
+}
+
+Eigen::Quaternionf LocalMimicAdapter::anchorQuaternion(
+    const Eigen::Quaternionf& imu_quat_w, const Eigen::VectorXf& joint_pos) const {
+  // Go2 reports trunk orientation directly in the IMU/base quaternion.
+  // G1 reports pelvis IMU orientation, so keep the existing waist compensation there.
+  if (!usesG1TorsoAnchor(robot_model_)) {
+    return imu_quat_w;
+  }
+
+  if (joint_pos.size() <= 14) {
+    throw std::runtime_error(
+        "[LocalMimicAdapter] joint_pos is too small for G1 torso reconstruction");
+  }
+
+  return G1Adapter::getTorsoQuatFromImuAndWaist(imu_quat_w, joint_pos);
 }
 
 Eigen::VectorXf LocalMimicAdapter::jointPosTrainingOrder() const {

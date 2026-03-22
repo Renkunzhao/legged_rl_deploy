@@ -1,0 +1,88 @@
+# =============================================================================
+# Training code: mjlab
+# Task: Mjlab-Tracking-Flat-Unitree-Go2-No-State-Estimation
+# Source ONNX: 2026-03-11_20-57-41_go2_run
+# =============================================================================
+
+# lowlevel controller
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+
+# [SOURCE] params/env.yaml: sim.dt=0.005, decimation=4 -> policy_dt=0.02
+ll_dt: 0.005
+
+policy:
+  backend: ort
+  # Use the newly trained tracking policy directly from the mjlab run output.
+  model_path: src/legged_rl_deploy/policies/go2/mjlab/mimic/policy.onnx
+  # Actor obs = mimic(12+12+6) + base_ang_vel(3) + joint_pos(12) + joint_vel(12) + last_action(12)
+  input_dim: 69
+  output_dim: 12
+  policy_dt: 0.02
+
+  # Training order is MuJoCo natural joint order: FL, FR, RL, RR.
+  # Low-level hardware order is FR, FL, RR, RL.
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+
+  # [SOURCE] mjlab go2 tracking env actuator config
+  stiffness: [
+    17.6918024541168, 17.6918024541168, 65.21906056685614,
+    17.6918024541168, 17.6918024541168, 65.21906056685614,
+    17.6918024541168, 17.6918024541168, 65.21906056685614,
+    17.6918024541168, 17.6918024541168, 65.21906056685614
+  ]
+  damping: [
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185,
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185,
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185,
+    1.1262951251433972, 1.1262951251433972, 4.1519743493286185
+  ]
+
+  # No gamepad velocity commands for motion tracking.
+  commands: {}
+
+  actions:
+    JointPositionAction:
+      process_order: [scale, offset]
+      # [SOURCE] GO2_ACTION_SCALE = 0.25 * effort_limit / stiffness
+      scale: [
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184,
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184,
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184,
+        0.3349008680922322, 0.3349008680922322, 0.17414387605840184
+      ]
+      # [SOURCE] default_joint_pos in training order (FL, FR, RL, RR)
+      offset: [
+        -0.1, 0.9, -1.8,
+         0.1, 0.9, -1.8,
+        -0.1, 0.9, -1.8,
+         0.1, 0.9, -1.8
+      ]
+
+  observations:
+    terms:
+      mimic:
+        params:
+          source: local
+          dim: 30
+          terms: [joint_pos, joint_vel, motion_anchor_ori_b]
+          local:
+            # Use the same ONNX metadata as the policy for local motion reference.
+            file: src/legged_rl_deploy/policies/go2/mjlab/mimic/policy.onnx
+            fps: 50
+            hardware_order: false
+
+      base_ang_vel_B:
+
+      joint_pos:
+        process_order: [offset]
+        # Negated default_joint_pos in training order.
+        offset: [
+          0.1, -0.9, 1.8,
+         -0.1, -0.9, 1.8,
+          0.1, -0.9, 1.8,
+         -0.1, -0.9, 1.8
+        ]
+
+      joint_vel:
+
+      last_action:
