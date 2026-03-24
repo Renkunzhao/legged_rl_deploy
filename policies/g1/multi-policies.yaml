@@ -68,8 +68,3 @@ fsm:
       config: src/legged_rl_deploy/policies/g1/mimic/mjlab/dance1_subject1/config.yaml
       transitions:
         velocity: R2 + A
-
-    aba-jumps1_subject1:
-      config: src/legged_rl_deploy/policies/g1/mimic/aba/jumps1_subject1/config.yaml
-      transitions:
-        velocity: R2 + A
