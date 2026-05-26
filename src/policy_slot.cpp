@@ -266,6 +266,11 @@ void PolicySlot::calculateObsTerm(ObsTerm& term) {
   }
 
   if (term.name == "gait_phase_2") term.dim = 2;
+  if (term.name == "hop_command") term.dim = 1;
+  if (term.name == "base_pos") term.dim = 3;
+  if (term.name == "base_quat_w") term.dim = 4;
+  if (term.name == "base_lin_vel_W") term.dim = 3;
+  if (term.name == "base_lin_vel_B") term.dim = 3;
   if (term.name == "base_ang_vel_W") term.dim = 3;
   if (term.name == "base_ang_vel_B") term.dim = 3;
   if (term.name == "projected_gravity") term.dim = 3;
@@ -490,6 +495,32 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
       constexpr float kTwoPi = 6.28318530718f;
       v[0] = std::sin(kTwoPi * phase);
       v[1] = std::cos(kTwoPi * phase);
+
+    } else if (term.name == "hop_command") {
+      v[0] = term.params["peak_height"].as<float>(0.7f);
+
+    } else if (term.name == "base_pos") {
+      v[0] = state.base_pos()[0];
+      v[1] = state.base_pos()[1];
+      v[2] = state.base_pos()[2];
+
+    } else if (term.name == "base_quat_w") {
+      const auto& q = state.base_quat();
+      const double sign = q.w() < 0.0 ? -1.0 : 1.0;
+      v[0] = static_cast<float>(sign * q.w());
+      v[1] = static_cast<float>(sign * q.x());
+      v[2] = static_cast<float>(sign * q.y());
+      v[3] = static_cast<float>(sign * q.z());
+
+    } else if (term.name == "base_lin_vel_W") {
+      v[0] = state.base_lin_vel_W()[0];
+      v[1] = state.base_lin_vel_W()[1];
+      v[2] = state.base_lin_vel_W()[2];
+
+    } else if (term.name == "base_lin_vel_B") {
+      v[0] = state.base_lin_vel_B()[0];
+      v[1] = state.base_lin_vel_B()[1];
+      v[2] = state.base_lin_vel_B()[2];
 
     } else if (term.name == "base_ang_vel_W") {
       v[0] = state.base_ang_vel_W()[0];

@@ -1,0 +1,72 @@
+# =============================================================================
+# Whole-body-tracking Go2 rebounce trampoline baseline deploy config
+# Env cfg: Go2RebounceTrampolineEnvCfg
+# Policy obs: ObservationsCfg.policy
+# =============================================================================
+
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+ll_dt: 0.005
+
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2/wbt/rebounce/baseline/2026-05-25_17-05-49_wbt-go2-hopping-baseline-damping.onnx
+  input_dim: 43
+  output_dim: 12
+  policy_dt: 0.02
+
+  # IsaacLab training joint order:
+  # [FL_h, FR_h, RL_h, RR_h, FL_t, FR_t, RL_t, RR_t, FL_c, FR_c, RL_c, RR_c]
+  # SDK hardware order: FR, FL, RR, RL.
+
+  joint_ids_map: [3, 0, 9, 6, 4, 1, 10, 7, 5, 2, 11, 8]
+
+  stiffness: [17.692, 17.692, 17.692, 17.692, 17.692, 17.692, 17.692, 17.692, 65.219, 65.219, 65.219, 65.219]
+  damping:   [ 1.126,  1.126,  1.126,  1.126,  1.126,  1.126,  1.126,  1.126,  4.152,  4.152,  4.152,  4.152]
+
+  commands: {}
+
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -100.0
+      max: 100.0
+      scale:  [0.335, 0.335, 0.335, 0.335, 0.335, 0.335, 0.335, 0.335, 0.174, 0.174, 0.174, 0.174]
+      offset: [-0.100, 0.100, -0.100, 0.100, 0.900, 0.900, 0.900, 0.900, -1.800, -1.800, -1.800, -1.800]
+
+  observations:
+    # Single frame 43 dims:
+    # hop_command(1), projected_gravity(3), base_ang_vel(3),
+    # joint_pos(12), joint_vel(12), last_action(12).
+    terms:
+      hop_command:
+        params:
+          peak_height: 0.5
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+
+      projected_gravity:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+
+      base_ang_vel_B:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+
+      joint_pos:
+        process_order: [offset, clip]
+        offset: [0.100, -0.100, 0.100, -0.100, -0.900, -0.900, -0.900, -0.900, 1.800, 1.800, 1.800, 1.800]
+        min: -100.0
+        max: 100.0
+
+      joint_vel:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+
+      last_action:
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
