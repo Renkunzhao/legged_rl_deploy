@@ -187,7 +187,7 @@ void LeggedRLDeploy::initHighController() {
       applyPolicyFileOverrides(pname, entry, policyNode);
 
       auto slot =
-          std::make_unique<PolicySlot>(pname, policyNode, robot_model_);
+          std::make_unique<PolicySlot>(pname, policyNode, robot_model_, *this);
       slot->init();
       slots_.emplace(pname, std::move(slot));
 
@@ -220,7 +220,7 @@ void LeggedRLDeploy::initHighController() {
     single_mode_ = true;
     const std::string pname = "default";
     auto slot = std::make_unique<PolicySlot>(
-        pname, configNode_["policy"], robot_model_);
+        pname, configNode_["policy"], robot_model_, *this);
     slot->init();
     active_name_ = pname;
     active_slot_ = slot.get();
@@ -259,7 +259,15 @@ void LeggedRLDeploy::updateHighController() {
   }
 
   // 2) Run active policy
-  active_slot_->update(real_state_, gamepad_, loop_cnt_, ll_dt_);
+  try {
+    active_slot_->update(real_state_, gamepad_, loop_cnt_, ll_dt_);
+  } catch (const std::exception& error) {
+    std::cerr << "[LeggedRLDeploy] Policy failure: " << error.what()
+              << ". Emergency stop engaged." << std::endl;
+    safetyFlag = false;
+    eStop();
+    return;
+  }
 
   // 3) Write joint commands from active slot's output
   const auto& out = active_slot_->outputBuf();

@@ -173,6 +173,11 @@ For G1 hardware, enter `Debug Mode` first as described in the [`unitree_lowlevel
 From the workspace root, use the helper wrapper:
 
 ```bash
+source src/unitree_lowlevel/scripts/setup.sh lo jazzy
+ros2 run legged_rl_deploy depth_image_preprocessor_node.py \
+  --ros-args --params-file \
+  src/legged_rl_deploy/<config-directory>/depth_image_preprocessor.yaml
+
 ./src/legged_rl_deploy/scripts/run.sh <network-interface> <ros-distro> ros2 run legged_rl_deploy legged_rl_deploy_node <network-interface> <config-file>
 ```
 
@@ -212,6 +217,35 @@ Single-policy configs typically define:
 - `policy.observations`: observation terms and assembly layout
 - `policy.actions`: output post-processing
 - `policy.commands`: command preprocessing
+
+The compact `input_dim`/`output_dim` form is for a model with one observation
+input and one action output. Models with any other signature declare the full
+contract under `policy.model`:
+
+- `model.inputs`: tensor `name`, concrete `shape`, and `source`
+- `model.outputs`: tensor `name`, concrete `shape`, and `target`
+- input sources: `observations`, `external.<name>`, `state.<name>`, or
+  `constant`
+- output targets: `actions`, `state.<name>`, or `discard`
+- `model.states`: zero-initialized explicit loop buffers with an optional
+  `max_norm`
+
+Exactly one output must target `actions`. Every declared state must bind to one
+input and one output. The runner owns these buffers and resets them whenever a
+policy slot resets. A stateful TorchScript module does not declare
+`model.states`; its internal state stays inside the module, and an exported
+zero-argument `reset()` method is called when present.
+
+All model inputs, outputs, constants, and explicit state buffers currently use
+`float32`. ONNX or TorchScript models with integer tensor inputs are not
+supported by the current runners.
+
+ROS image inputs are configured under `policy.external_inputs`. They are strict
+tensor transports and currently require a tightly packed, little-endian
+`32FC1` image matching the configured `[1, 1, H, W]` model shape. The encoding
+describes the final policy tensor, not the raw camera stream. Raw image decoding,
+resize, clipping, invalid-value handling, and normalization belong in a
+separate preprocessing node; no automatic tensor layout conversion is applied.
 
 Multi-policy configs additionally define:
 

@@ -5,8 +5,8 @@
       "id": "RosDistro",
       "type": "pickString",
       "description": "Select ROS distribution",
-      "options": ["humble", "foxy", "galactic"],
-      "default": "humble"
+      "options": ["jazzy", "humble", "foxy", "galactic"],
+      "default": "jazzy"
     },
     {
       "id": "BuildType",
@@ -23,11 +23,10 @@
       "default": "lo"
     },
     {
-      "id": "RosDistro",
-      "type": "pickString",
-      "description": "Select ROS distribution",
-      "options": ["jazzy", "humble", "foxy", "galactic"],
-      "default": "jazzy"
+        "id": "Config Directory",
+        "type": "promptString",
+        "description": "Input config Directory",
+        "default": ""
     },
     {
         "id": "Config Path",
@@ -46,7 +45,7 @@
         "type": "promptString",
         "description": "Input PyTorch wheel URL",
         "default": ""
-    },
+    }
   ],
   "tasks": [
     {
@@ -64,9 +63,9 @@
       "command": "${env:HOME}/.local/bin/uv",
       "args": [
           "run","python", "scripts/pt_to_onnx.py",
-          "--pt", "${input:Config Path}/policy.pt",
-          "--onnx", "${input:Config Path}/policy.onnx", 
-          "--config", "${input:Config Path}/config.yaml"
+          "--pt", "${input:Config Directory}/policy.pt",
+          "--onnx", "${input:Config Directory}/policy.onnx",
+          "--config", "${input:Config Directory}/config.yaml"
       ],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
@@ -95,10 +94,8 @@
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
-
-    // Controller
     {
-      "label": "ROS2: RL",
+      "label": "ROS2: Policies",
       "type": "process",
       "command": "bash",
       "args": [
@@ -110,7 +107,39 @@
       ],
       "options": { 
         "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
       "problemMatcher": []
     },
+    {
+      "label": "ROS2: Depth",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "scripts/run.sh",
+        "${input:NetworkInterface}", "${input:RosDistro}",
+        "ros2", "run", "legged_rl_deploy", "depth_image_preprocessor_node.py",
+        "--ros-args", "--params-file", "${workspaceFolder}/${input:Config Directory}/depth_image_preprocessor.yaml"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "ROS2: Depth + Policies",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "ROS2: Depth",
+        "ROS2: Policies"
+      ],
+      "problemMatcher": []
+    }
   ]
 }

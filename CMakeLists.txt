@@ -34,7 +34,9 @@ find_package(Torch QUIET)
 # 3️⃣ 创建库（导出给上游用）
 ##############################
 add_library(${PROJECT_NAME}
+    src/policy/i_policy_runner.cpp
     src/policy/policy_factory.cpp
+    src/external/ros_image_tensor_input.cpp
     src/policy_slot.cpp
     src/legged_rl_deploy.cpp
     src/motion/cnpy.cpp
@@ -50,7 +52,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(${PROJECT_NAME} PUBLIC
+target_link_libraries(${PROJECT_NAME}
   unitree_lowlevel::unitree_lowlevel
   legged_base::legged_base
   ZLIB::ZLIB
@@ -63,7 +65,7 @@ if(Torch_FOUND)
   message(STATUS "Found libtorch: ${Torch_VERSION}")
   target_sources(${PROJECT_NAME} PRIVATE src/policy/torch_policy_runner.cpp)
   target_compile_definitions(${PROJECT_NAME} PRIVATE USE_TORCH)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ${TORCH_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME} ${TORCH_LIBRARIES})
   target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 else()
   message(STATUS "libtorch not found. TorchScript inference will be disabled.")
@@ -81,8 +83,9 @@ if(EXISTS "${ORT_INC}/onnxruntime_cxx_api.h" AND EXISTS "${ORT_LIB}")
   target_sources(${PROJECT_NAME} PRIVATE src/policy/ort_policy_runner.cpp)
   target_compile_definitions(${PROJECT_NAME} PRIVATE USE_ORT)
   target_include_directories(${PROJECT_NAME} PRIVATE "${ORT_INC}")
-  target_link_libraries(${PROJECT_NAME} PUBLIC "${ORT_LIB}")
+  target_link_libraries(${PROJECT_NAME} "${ORT_LIB}")
   target_link_options(${PROJECT_NAME} PUBLIC "-Wl,-rpath,${ORT_ROOT}/lib")
+
 else()
   message(STATUS "ORT not found in ${ORT_ROOT} (skip ORT)")
 endif()
@@ -96,7 +99,7 @@ if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
   message(STATUS "Found hiredis")
   target_compile_definitions(${PROJECT_NAME} PRIVATE USE_HIREDIS)
   target_include_directories(${PROJECT_NAME} PRIVATE ${HIREDIS_INCLUDE_DIR})
-  target_link_libraries(${PROJECT_NAME} PUBLIC ${HIREDIS_LIBRARY})
+  target_link_libraries(${PROJECT_NAME} ${HIREDIS_LIBRARY})
 else()
   message(STATUS "hiredis not found (redis mimic source disabled)")
 endif()
@@ -172,15 +175,27 @@ endif()
 find_package(ament_cmake QUIET)
 if(ament_cmake_FOUND)
   message(STATUS "Found ament_cmake")
+  find_package(rclcpp REQUIRED)
+  find_package(sensor_msgs REQUIRED)
 
-  # 安装可执行文件
+  ament_target_dependencies(${PROJECT_NAME}
+    rclcpp
+    sensor_msgs
+  )
+
+  # 安装已有可执行文件
   install(TARGETS legged_rl_deploy_node
+    DESTINATION lib/${PROJECT_NAME}
+  )
+
+  install(PROGRAMS
+    scripts/depth_image_preprocessor_node.py
     DESTINATION lib/${PROJECT_NAME}
   )
 
   # 这两行让 ament 生态下的下游也能拿到 targets/依赖（推荐）
   ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
-  ament_export_dependencies(unitree_lowlevel legged_base)
+  ament_export_dependencies(unitree_lowlevel legged_base rclcpp sensor_msgs)
 
   ament_package()
 endif()

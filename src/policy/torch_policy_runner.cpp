@@ -1,47 +1,80 @@
 #include "legged_rl_deploy/policy/torch_policy_runner.h"
 
 #ifdef USE_TORCH
-#include <cstring>
+
+#include <algorithm>
 #include <stdexcept>
 
 namespace legged_rl_deploy {
+namespace {
 
-static torch::Tensor extractActionTensor(const torch::jit::IValue& out_iv) {
-  if (out_iv.isTensor()) return out_iv.toTensor();
-  if (out_iv.isTuple()) {
-    const auto& elems = out_iv.toTuple()->elements();
-    if (!elems.empty() && elems[0].isTensor()) return elems[0].toTensor();
+void copyTensor(const torch::jit::IValue& value,
+                const IPolicyRunner::TensorSpec& expected, float* output) {
+  if (!value.isTensor()) throw std::runtime_error("Torch policy output must be Tensor");
+  torch::Tensor tensor =
+      value.toTensor().to(torch::kCPU, torch::kFloat32).contiguous();
+  if (tensor.sizes().vec() != expected.shape) {
+    throw std::runtime_error("Torch policy output shape does not match config");
   }
-  throw std::runtime_error("Policy output must be Tensor or tuple[0]=Tensor");
+  std::copy(tensor.data_ptr<float>(), tensor.data_ptr<float>() + expected.size, output);
 }
 
-void TorchPolicyRunner::load(const std::string& model_path, int input_dim, int output_dim) {
-  input_dim_ = input_dim;
-  output_dim_ = output_dim;
+}  // namespace
+
+void TorchPolicyRunner::loadBackend(const std::string& model_path) {
   policy_ = torch::jit::load(model_path);
   policy_.eval();
 
-  // 预分配 input tensor（CPU float32）
-  input_ = torch::empty({1, input_dim_}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU));
-
-  torch::NoGradGuard ng;
-  auto out_iv = policy_.forward({input_});
-  auto out = extractActionTensor(out_iv).to(torch::kCPU, torch::kFloat32).contiguous();
-  if (out.dim() != 2 || out.size(0) != 1 || out.size(1) != output_dim_) {
-    throw std::runtime_error("Policy output shape mismatch in self-check");
+  const auto schema = policy_.get_method("forward").function().getSchema();
+  const auto& arguments = schema.arguments();
+  if (arguments.size() != modelInputs().size() + 1) {
+    throw std::runtime_error("Torch forward input count does not match config");
+  }
+  for (size_t i = 0; i < modelInputs().size(); ++i) {
+    if (!modelInputs()[i].name.empty() &&
+        arguments[i + 1].name() != modelInputs()[i].name) {
+      throw std::runtime_error("Torch forward input name does not match config: " +
+                               modelInputs()[i].name);
+    }
   }
 }
 
-void TorchPolicyRunner::infer(const float* input, float* output) {
-  // 把 obs 写入预分配 tensor（避免每次创建 tensor）
-  std::memcpy(input_.data_ptr<float>(), input, sizeof(float) * input_dim_);
+void TorchPolicyRunner::runBackend(const std::vector<const float*>& inputs,
+                                   const std::vector<float*>& outputs) {
+  std::vector<torch::jit::IValue> arguments;
+  arguments.reserve(inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    arguments.emplace_back(torch::from_blob(
+        const_cast<float*>(inputs[i]), modelInputs()[i].shape,
+        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)));
+  }
 
-  torch::NoGradGuard ng;
-  auto out_iv = policy_.forward({input_});
-  auto out = extractActionTensor(out_iv).to(torch::kCPU, torch::kFloat32).contiguous();
+  torch::NoGradGuard no_grad;
+  const torch::jit::IValue result = policy_.forward(arguments);
+  if (modelOutputs().size() == 1 && result.isTensor()) {
+    copyTensor(result, modelOutputs()[0], outputs[0]);
+    return;
+  }
+  if (!result.isTuple()) {
+    throw std::runtime_error("Torch multi-output policy must return a tuple");
+  }
+  const auto& values = result.toTuple()->elements();
+  if (values.size() != modelOutputs().size()) {
+    throw std::runtime_error("Torch forward output count does not match config");
+  }
+  for (size_t i = 0; i < values.size(); ++i) {
+    copyTensor(values[i], modelOutputs()[i], outputs[i]);
+  }
+}
 
-  // 这里可以选择不每次检查 shape（release 模式略过），debug 模式可保留 assert
-  std::memcpy(output, out.data_ptr<float>(), sizeof(float) * output_dim_);
+void TorchPolicyRunner::resetBackend() {
+  if (!policy_.find_method("reset")) return;
+  const auto method = policy_.get_method("reset");
+  if (method.function().getSchema().arguments().size() != 1) {
+    throw std::runtime_error("Torch reset() must not take arguments");
+  }
+  torch::NoGradGuard no_grad;
+  method({});
 }
 
 }  // namespace legged_rl_deploy

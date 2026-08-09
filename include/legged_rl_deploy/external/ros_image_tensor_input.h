@@ -1,0 +1,43 @@
+#pragma once
+
+#include <chrono>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <yaml-cpp/yaml.h>
+
+namespace legged_rl_deploy {
+
+class RosImageTensorInput {
+public:
+  RosImageTensorInput(rclcpp::Node& node, const std::string& source_name,
+                      const YAML::Node& config,
+                      const std::vector<int64_t>& tensor_shape);
+
+  void read(std::vector<float>& destination) const;
+
+private:
+  void callback(const sensor_msgs::msg::Image& message);
+
+  std::string source_name_;
+  std::string encoding_;
+  size_t height_ = 0;
+  size_t width_ = 0;
+  std::chrono::duration<double> timeout_;
+  bool check_range_ = false;
+  float min_value_ = 0.0f;
+  float max_value_ = 0.0f;
+
+  mutable std::mutex mutex_;
+  std::vector<float> latest_;
+  std::chrono::steady_clock::time_point received_at_{};
+  bool received_ = false;
+  std::string error_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
+};
+
+}  // namespace legged_rl_deploy

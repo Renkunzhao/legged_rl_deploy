@@ -1,148 +1,104 @@
 #include "legged_rl_deploy/policy/ort_policy_runner.h"
 
 #ifdef USE_ORT
+
+#include <algorithm>
 #include <cstring>
-#include <iostream>
 #include <stdexcept>
 
 namespace legged_rl_deploy {
+namespace {
 
-static inline int64_t numel(const std::vector<int64_t>& s) {
-  int64_t n = 1;
-  for (auto v : s) n *= (v > 0 ? v : 1);
-  return n;
-}
-
-void OrtPolicyRunner::load(const std::string& model_path, int input_dim, int output_dim) {
-  input_dim_  = input_dim;
-  output_dim_ = output_dim;
-  out_dim64_  = static_cast<int64_t>(output_dim_);
-
-  opt_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
-  opt_.SetIntraOpNumThreads(1);
-
-  session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), opt_);
-
-  if (session_->GetInputCount() < 1 || session_->GetOutputCount() < 1) {
-    throw std::runtime_error("ORT model must have at least 1 input and 1 output");
+void validateTensor(const Ort::TypeInfo& type_info,
+                    const IPolicyRunner::TensorSpec& expected,
+                    const std::string& context) {
+  const auto info = type_info.GetTensorTypeAndShapeInfo();
+  if (info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+    throw std::runtime_error(context + " must be float32");
   }
-
-  Ort::AllocatorWithDefaultOptions alloc;
-
-  // ---------- enumerate all inputs ----------
-  const size_t n_in = session_->GetInputCount();
-  in_names_.resize(n_in);
-  in_names_c_.resize(n_in);
-
-  for (size_t i = 0; i < n_in; ++i) {
-    auto n = session_->GetInputNameAllocated(i, alloc);
-    in_names_[i] = n.get();
-    in_names_c_[i] = in_names_[i].c_str();
-  }
-
-  // Find the primary obs input (first input, or named "obs")
-  obs_idx_ = 0;
-  for (size_t i = 0; i < n_in; ++i) {
-    if (in_names_[i] == "obs") { obs_idx_ = i; break; }
-  }
-
-  // Prepare obs buffer
-  obs_shape_[0] = 1;
-  obs_shape_[1] = static_cast<int64_t>(input_dim_);
-  obs_buf_.assign(static_cast<size_t>(input_dim_), 0.0f);
-
-  // Zero-fill buffers for extra inputs (e.g. time_step) — ignored
-  extra_bufs_.resize(n_in);
-  extra_shapes_.resize(n_in);
-  for (size_t i = 0; i < n_in; ++i) {
-    if (i == obs_idx_) continue;
-    auto type_info = session_->GetInputTypeInfo(i);
-    auto shape = type_info.GetTensorTypeAndShapeInfo().GetShape();
-    extra_bufs_[i].assign(static_cast<size_t>(numel(shape)), 0.0f);
-    extra_shapes_[i] = shape;
-    std::cout << "[OrtPolicyRunner] Extra input \"" << in_names_[i]
-              << "\" (ignored, zero-filled)" << std::endl;
-  }
-
-  // ---------- enumerate all outputs ----------
-  const size_t n_out = session_->GetOutputCount();
-  out_names_.resize(n_out);
-  out_names_c_.resize(n_out);
-
-  for (size_t i = 0; i < n_out; ++i) {
-    auto n = session_->GetOutputNameAllocated(i, alloc);
-    out_names_[i] = n.get();
-    out_names_c_[i] = out_names_[i].c_str();
-  }
-
-  // First output is the action tensor
-  action_idx_ = 0;
-
-  // ---------- self-check ----------
-  std::vector<Ort::Value> input_tensors;
-  input_tensors.reserve(n_in);
-  for (size_t i = 0; i < n_in; ++i) {
-    if (i == obs_idx_) {
-      input_tensors.push_back(Ort::Value::CreateTensor<float>(
-          mem_, obs_buf_.data(), obs_buf_.size(),
-          obs_shape_.data(), obs_shape_.size()));
-    } else {
-      input_tensors.push_back(Ort::Value::CreateTensor<float>(
-          mem_, extra_bufs_[i].data(), extra_bufs_[i].size(),
-          extra_shapes_[i].data(), extra_shapes_[i].size()));
-    }
-  }
-
-  auto outs = session_->Run(
-      Ort::RunOptions{nullptr},
-      in_names_c_.data(), input_tensors.data(), n_in,
-      out_names_c_.data(), n_out);
-
-  if (outs.empty()) throw std::runtime_error("ORT output count = 0");
-
-  auto info  = outs[action_idx_].GetTensorTypeAndShapeInfo();
-  auto shape = info.GetShape();
-
-  int64_t n = 0;
-  if (shape.size() == 2) n = shape[0] * shape[1];
-  else if (shape.size() == 1) n = shape[0];
-  else n = numel(shape);
-
-  if (n != out_dim64_) {
-    throw std::runtime_error("ORT policy output size mismatch in self-check: got " +
-                             std::to_string(n) + " expected " + std::to_string(out_dim64_));
+  const auto actual_shape = info.GetShape();
+  const bool shape_matches =
+      actual_shape.size() == expected.shape.size() &&
+      std::equal(actual_shape.begin(), actual_shape.end(), expected.shape.begin(),
+                 [](int64_t actual, int64_t configured) {
+                   return actual == configured || actual == -1;
+                 });
+  if (!shape_matches) {
+    throw std::runtime_error(context + " shape does not match config");
   }
 }
 
-void OrtPolicyRunner::infer(const float* input, float* output) {
-  if (!session_) throw std::runtime_error("ORT session not loaded");
+}  // namespace
 
-  std::memcpy(obs_buf_.data(), input, sizeof(float) * static_cast<size_t>(input_dim_));
+void OrtPolicyRunner::loadBackend(const std::string& model_path) {
+  options_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
+  options_.SetIntraOpNumThreads(1);
+  session_ = std::make_unique<Ort::Session>(env_, model_path.c_str(), options_);
 
-  const size_t n_in = in_names_.size();
-  const size_t n_out = out_names_.size();
-
-  std::vector<Ort::Value> input_tensors;
-  input_tensors.reserve(n_in);
-  for (size_t i = 0; i < n_in; ++i) {
-    if (i == obs_idx_) {
-      input_tensors.push_back(Ort::Value::CreateTensor<float>(
-          mem_, obs_buf_.data(), obs_buf_.size(),
-          obs_shape_.data(), obs_shape_.size()));
-    } else {
-      input_tensors.push_back(Ort::Value::CreateTensor<float>(
-          mem_, extra_bufs_[i].data(), extra_bufs_[i].size(),
-          extra_shapes_[i].data(), extra_shapes_[i].size()));
-    }
+  const auto& expected_inputs = modelInputs();
+  const auto& expected_outputs = modelOutputs();
+  if (session_->GetInputCount() != expected_inputs.size() ||
+      session_->GetOutputCount() != expected_outputs.size()) {
+    throw std::runtime_error("ORT model input/output count does not match config");
   }
 
-  auto outs = session_->Run(
-      Ort::RunOptions{nullptr},
-      in_names_c_.data(), input_tensors.data(), n_in,
-      out_names_c_.data(), n_out);
+  Ort::AllocatorWithDefaultOptions allocator;
+  input_names_.clear();
+  for (size_t i = 0; i < expected_inputs.size(); ++i) {
+    auto allocated = session_->GetInputNameAllocated(i, allocator);
+    const std::string actual_name = allocated.get();
+    if (!expected_inputs[i].name.empty() && actual_name != expected_inputs[i].name) {
+      throw std::runtime_error("ORT input " + std::to_string(i) + " is named " +
+                               actual_name + ", expected " + expected_inputs[i].name);
+    }
+    validateTensor(session_->GetInputTypeInfo(i), expected_inputs[i],
+                   "ORT input " + actual_name);
+    input_names_.push_back(actual_name);
+  }
 
-  float* out_ptr = outs[action_idx_].GetTensorMutableData<float>();
-  std::memcpy(output, out_ptr, sizeof(float) * static_cast<size_t>(output_dim_));
+  output_names_.clear();
+  for (size_t i = 0; i < expected_outputs.size(); ++i) {
+    auto allocated = session_->GetOutputNameAllocated(i, allocator);
+    const std::string actual_name = allocated.get();
+    if (!expected_outputs[i].name.empty() && actual_name != expected_outputs[i].name) {
+      throw std::runtime_error("ORT output " + std::to_string(i) + " is named " +
+                               actual_name + ", expected " + expected_outputs[i].name);
+    }
+    validateTensor(session_->GetOutputTypeInfo(i), expected_outputs[i],
+                   "ORT output " + actual_name);
+    output_names_.push_back(actual_name);
+  }
+
+  input_name_ptrs_.clear();
+  for (const auto& name : input_names_) input_name_ptrs_.push_back(name.c_str());
+  output_name_ptrs_.clear();
+  for (const auto& name : output_names_) output_name_ptrs_.push_back(name.c_str());
+}
+
+void OrtPolicyRunner::runBackend(const std::vector<const float*>& inputs,
+                                 const std::vector<float*>& outputs) {
+  if (!session_) throw std::runtime_error("ORT session is not loaded");
+  const auto& input_specs = modelInputs();
+  const auto& output_specs = modelOutputs();
+
+  std::vector<Ort::Value> tensors;
+  tensors.reserve(inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    tensors.push_back(Ort::Value::CreateTensor<float>(
+        memory_, const_cast<float*>(inputs[i]), input_specs[i].size,
+        input_specs[i].shape.data(), input_specs[i].shape.size()));
+  }
+
+  auto results = session_->Run(Ort::RunOptions{nullptr}, input_name_ptrs_.data(),
+                               tensors.data(), tensors.size(),
+                               output_name_ptrs_.data(), output_name_ptrs_.size());
+  if (results.size() != outputs.size()) {
+    throw std::runtime_error("ORT returned an unexpected output count");
+  }
+  for (size_t i = 0; i < results.size(); ++i) {
+    const float* data = results[i].GetTensorData<float>();
+    std::copy(data, data + output_specs[i].size, outputs[i]);
+  }
 }
 
 }  // namespace legged_rl_deploy

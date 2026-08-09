@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <unordered_set>
 
 #include "legged_rl_deploy/motion/local_mimic_adapter.h"
 #include "legged_rl_deploy/motion/redis_mimic_adapter.h"
@@ -44,8 +45,8 @@ size_t maxLag(const std::vector<size_t>& lags) {
 } // namespace
 
 PolicySlot::PolicySlot(const std::string& name, const YAML::Node& policyNode,
-                       const LeggedModel& model)
-    : name_(name), policyNode_(policyNode), robot_model_(model) {}
+                       const LeggedModel& model, rclcpp::Node& node)
+    : name_(name), policyNode_(policyNode), robot_model_(model), node_(node) {}
 
 void PolicySlot::init() {
   const auto& pnode = policyNode_;
@@ -54,16 +55,20 @@ void PolicySlot::init() {
   const std::string model_path =
       legged_base::getEnv("WORKSPACE") + "/" + pnode["model_path"].as<std::string>();
 
-  input_dim_ = pnode["input_dim"].as<size_t>();
-  output_dim_ = pnode["output_dim"].as<size_t>();
-
   policy_runner_ = makePolicyRunner(backend);
-  policy_runner_->load(model_path, input_dim_, output_dim_);
+  policy_runner_->load(model_path, pnode);
+  input_dim_ = policy_runner_->observationDim();
+  output_dim_ = policy_runner_->actionDim();
+  if (input_dim_ == 0) {
+    throw std::runtime_error("[PolicySlot:" + name_ +
+                             "] model requires an observations input");
+  }
   std::cout << "[PolicySlot:" << name_ << "] Policy loaded (" << backend << ")."
             << std::endl;
 
   input_buf_.assign(input_dim_, 0.0f);
   output_buf_.assign(output_dim_, 0.0f);
+  raw_output_.assign(output_dim_, 0.0f);
 
   policy_dt_ = pnode["policy_dt"].as<float>(0.02f);
   joint_ids_map_ = pnode["joint_ids_map"].as<std::vector<size_t>>();
@@ -76,6 +81,26 @@ void PolicySlot::init() {
       const std::string cname = it->first.as<std::string>();
       auto maybe = Processor::TryLoad(it->second);
       if (maybe) commands_.emplace(cname, std::move(*maybe));
+    }
+    const YAML::Node base_velocity = pnode["commands"]["base_velocity"];
+    if (base_velocity) {
+      if (!base_velocity.IsMap()) {
+        throw std::runtime_error("[PolicySlot:" + name_ +
+                                 "] commands.base_velocity must be a map");
+      }
+      const YAML::Node rate_limit = base_velocity["rate_limit"];
+      if (rate_limit) {
+        velocity_rate_limit_ = rate_limit.as<std::vector<float>>();
+        if (velocity_rate_limit_.size() != 3 ||
+            std::any_of(velocity_rate_limit_.begin(), velocity_rate_limit_.end(),
+                        [](float value) {
+                          return !std::isfinite(value) || value <= 0.0f;
+                        })) {
+          throw std::runtime_error(
+              "[PolicySlot:" + name_ +
+              "] base_velocity.rate_limit must contain three finite positive values");
+        }
+      }
     }
   }
 
@@ -111,6 +136,7 @@ void PolicySlot::init() {
   parseAssemble(observations);
   computeTermHistoryCapacities();
   initMimicSource();
+  initExternalInputs();
 
   std::cout << "[PolicySlot:" << name_ << "] init done. input_dim=" << input_dim_
             << " output_dim=" << output_dim_ << std::endl;
@@ -120,9 +146,11 @@ void PolicySlot::reset(const LeggedState& state) {
   std::fill(input_buf_.begin(), input_buf_.end(), 0.0f);
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
   std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
+  std::fill(velocity_command_.begin(), velocity_command_.end(), 0.0f);
   for (auto& now : term_now_) std::fill(now.begin(), now.end(), 0.0f);
   for (auto& hist : term_hist_) hist.clear();
   has_valid_output_ = false;
+  policy_runner_->reset();
 
   if (output_buf_.size() != output_dim_) {
     output_buf_.assign(output_dim_, 0.0f);
@@ -435,10 +463,79 @@ void PolicySlot::initMimicSource() {
                            "] mimic.params.source must be local or redis");
 }
 
+void PolicySlot::initExternalInputs() {
+  runtime_inputs_.clear();
+  external_input_buffers_.clear();
+  external_inputs_.clear();
+
+  const YAML::Node configs = policyNode_["external_inputs"];
+  std::unordered_set<std::string> configured_names;
+  for (const auto& input : policy_runner_->runtimeInputSpecs()) {
+    if (input.source == "observations") {
+      runtime_inputs_.push_back({input.source, input_buf_.data(), input_buf_.size()});
+      continue;
+    }
+    constexpr const char* prefix = "external.";
+    if (input.source.rfind(prefix, 0) != 0) {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] unsupported runtime input " + input.source);
+    }
+    const std::string external_name =
+        input.source.substr(std::char_traits<char>::length(prefix));
+    const YAML::Node config = configs ? configs[external_name] : YAML::Node();
+    if (!config) {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] missing external_inputs." + external_name);
+    }
+    configured_names.emplace(external_name);
+    auto inserted = external_input_buffers_.emplace(
+        input.source, std::vector<float>(input.size, 0.0f));
+    external_inputs_.emplace(
+        input.source,
+        std::make_unique<RosImageTensorInput>(node_, input.source, config,
+                                               input.shape));
+    runtime_inputs_.push_back(
+        {input.source, inserted.first->second.data(), inserted.first->second.size()});
+  }
+
+  if (configs) {
+    if (!configs.IsMap()) {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] external_inputs must be a map");
+    }
+    for (auto it = configs.begin(); it != configs.end(); ++it) {
+      const std::string name = it->first.as<std::string>();
+      if (configured_names.count(name) == 0) {
+        throw std::runtime_error("[PolicySlot:" + name_ +
+                                 "] unused external_inputs." + name);
+      }
+    }
+  }
+}
+
+void PolicySlot::updateVelocityCommand(
+    const unitree::common::Gamepad& gamepad) {
+  std::vector<float> target{gamepad.ly, -gamepad.lx, -gamepad.rx};
+  const auto processor = commands_.find("base_velocity");
+  if (processor != commands_.end()) processor->second.process(target);
+
+  if (velocity_rate_limit_.empty()) {
+    velocity_command_ = std::move(target);
+    return;
+  }
+  for (size_t i = 0; i < velocity_command_.size(); ++i) {
+    const float max_delta = velocity_rate_limit_[i] * policy_dt_;
+    const float delta = std::clamp(target[i] - velocity_command_[i],
+                                   -max_delta, max_delta);
+    velocity_command_[i] += delta;
+  }
+}
+
 void PolicySlot::assembleObsFrame(const LeggedState& state,
                                   const unitree::common::Gamepad& gamepad,
                                   size_t loop_cnt, double ll_dt) {
   std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
+  updateVelocityCommand(gamepad);
 
   if (mimic_source_) {
     mimic_source_->step(state);
@@ -491,10 +588,18 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
 
     } else if (term.name == "gait_phase_2") {
       const float cycle_time = term.params["cycle_time"].as<float>();
-      const float phase = loop_cnt * ll_dt / cycle_time;
-      constexpr float kTwoPi = 6.28318530718f;
-      v[0] = std::sin(kTwoPi * phase);
-      v[1] = std::cos(kTwoPi * phase);
+      const float command_threshold =
+          term.params["command_threshold"].as<float>(-1.0f);
+      const float command_norm = std::sqrt(
+          velocity_command_[0] * velocity_command_[0] +
+          velocity_command_[1] * velocity_command_[1] +
+          velocity_command_[2] * velocity_command_[2]);
+      if (command_threshold < 0.0f || command_norm >= command_threshold) {
+        const float phase = loop_cnt * ll_dt / cycle_time;
+        constexpr float kTwoPi = 6.28318530718f;
+        v[0] = std::sin(kTwoPi * phase);
+        v[1] = std::cos(kTwoPi * phase);
+      }
 
     } else if (term.name == "hop_command") {
       v[0] = term.params["peak_height"].as<float>(0.7f);
@@ -548,9 +653,7 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
       v[2] = static_cast<float>(g[2]);
 
     } else if (term.name == "velocity_commands") {
-      v = {gamepad.ly, -gamepad.lx, -gamepad.rx};
-      auto it = commands_.find("base_velocity");
-      if (it != commands_.end()) it->second.process(v);
+      v = velocity_command_;
 
     } else if (term.name == "joint_pos") {
       for (size_t i = 0; i < robot_model_.nJoints(); ++i) {
@@ -644,19 +747,22 @@ void PolicySlot::updatePolicy(const LeggedState& state,
   }
   pushTermHistory();
 
-  std::vector<float> raw_output(output_dim_, 0.0f);
-  policy_runner_->infer(input_buf_.data(), raw_output.data());
-  for (float v : raw_output) {
-    if (!std::isfinite(v)) {
-      std::cerr << "[PolicySlot:" << name_
-                << "] infer output has NaN/Inf, keep previous output."
-                << std::endl;
-      return;
+  for (auto& external : external_inputs_) {
+    external.second->read(external_input_buffers_.at(external.first));
+  }
+  for (auto& input : runtime_inputs_) {
+    if (input.source == "observations") {
+      input.data = input_buf_.data();
+    } else {
+      const auto& buffer = external_input_buffers_.at(input.source);
+      input.data = buffer.data();
+      input.size = buffer.size();
     }
   }
+  policy_runner_->infer(runtime_inputs_, raw_output_.data());
 
-  last_action_ = raw_output;
-  output_buf_ = raw_output;
+  last_action_ = raw_output_;
+  output_buf_ = raw_output_;
   has_valid_output_ = true;
 
   auto it = actions_.find("JointPositionAction");

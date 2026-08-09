@@ -9,6 +9,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include "legged_rl_deploy/external/ros_image_tensor_input.h"
 #include "legged_rl_deploy/motion/mimic_source.h"
 #include "legged_rl_deploy/policy/i_policy_runner.h"
 #include "legged_rl_deploy/processor.h"
@@ -22,7 +23,7 @@ namespace legged_rl_deploy {
 class PolicySlot {
 public:
   PolicySlot(const std::string& name, const YAML::Node& policyNode,
-             const LeggedModel& model);
+             const LeggedModel& model, rclcpp::Node& node);
 
   void init();
   void reset(const LeggedState& state);
@@ -74,6 +75,8 @@ private:
   void parseAssemble(const YAML::Node& observations);
   void computeTermHistoryCapacities();
   void initMimicSource();
+  void initExternalInputs();
+  void updateVelocityCommand(const unitree::common::Gamepad& gamepad);
   void assembleObsFrame(const LeggedState& state,
                         const unitree::common::Gamepad& gamepad,
                         size_t loop_cnt, double ll_dt);
@@ -95,12 +98,18 @@ private:
   std::string name_;
   YAML::Node policyNode_;
   const LeggedModel& robot_model_;
+  rclcpp::Node& node_;
 
   std::unique_ptr<IPolicyRunner> policy_runner_;
   size_t input_dim_ = 0;
   size_t output_dim_ = 0;
   std::vector<float> input_buf_;
   std::vector<float> output_buf_;
+  std::vector<float> raw_output_;
+  std::vector<RuntimeTensor> runtime_inputs_;
+  std::unordered_map<std::string, std::vector<float>> external_input_buffers_;
+  std::unordered_map<std::string, std::unique_ptr<RosImageTensorInput>>
+      external_inputs_;
 
   float policy_dt_ = 0.02f;
   std::vector<size_t> joint_ids_map_;
@@ -110,6 +119,8 @@ private:
 
   std::unordered_map<std::string, Processor> commands_;
   std::unordered_map<std::string, Processor> actions_;
+  std::vector<float> velocity_command_{0.0f, 0.0f, 0.0f};
+  std::vector<float> velocity_rate_limit_;
 
   std::vector<ObsTerm> obs_terms_;
   std::unordered_map<std::string, size_t> obs_term_indices_;

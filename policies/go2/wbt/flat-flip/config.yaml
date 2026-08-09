@@ -9,9 +9,19 @@ ll_dt: 0.005
 
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2/wbt/flat/policy.onnx
-  input_dim: 69
-  output_dim: 12
+  model_path: src/legged_rl_deploy/policies/go2/wbt/flat-flip/policy.onnx
+  model:
+    inputs:
+      - {name: obs, shape: [1, 69], source: observations}
+      - {name: time_step, shape: [1, 1], source: constant, value: 0.0}
+    outputs:
+      - {name: actions, shape: [1, 12], target: actions}
+      - {name: joint_pos, shape: [1, 12], target: discard}
+      - {name: joint_vel, shape: [1, 12], target: discard}
+      - {name: body_pos_w, shape: [1, 13, 3], target: discard}
+      - {name: body_quat_w, shape: [1, 13, 4], target: discard}
+      - {name: body_lin_vel_w, shape: [1, 13, 3], target: discard}
+      - {name: body_ang_vel_w, shape: [1, 13, 3], target: discard}
   policy_dt: 0.02
 
   # IsaacLab training joint order from ONNX metadata:
@@ -41,7 +51,7 @@ policy:
           dim: 30
           terms: [joint_pos, joint_vel, motion_anchor_ori_b]
           local:
-            file: src/legged_rl_deploy/policies/go2/wbt/flat/policy.onnx
+            file: src/legged_rl_deploy/policies/go2/wbt/flat-flip/policy.onnx
             fps: 50
             hardware_order: false
 

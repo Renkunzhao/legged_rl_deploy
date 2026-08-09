@@ -54,8 +54,18 @@ policy:
   backend: ort
   model_path: src/legged_rl_deploy/policies/g1/mimic/whole_body_tracking/jumps1_subject1/policy.onnx
   # [SOURCE] ONNX: input shape=[1,154], output shape=[1,29]
-  input_dim: 154
-  output_dim: 29
+  model:
+    inputs:
+      - {name: obs, shape: [1, 154], source: observations}
+      - {name: time_step, shape: [1, 1], source: constant, value: 0.0}
+    outputs:
+      - {name: actions, shape: [1, 29], target: actions}
+      - {name: joint_pos, shape: [1, 29], target: discard}
+      - {name: joint_vel, shape: [1, 29], target: discard}
+      - {name: body_pos_w, shape: [1, 14, 3], target: discard}
+      - {name: body_quat_w, shape: [1, 14, 4], target: discard}
+      - {name: body_lin_vel_w, shape: [1, 14, 3], target: discard}
+      - {name: body_ang_vel_w, shape: [1, 14, 3], target: discard}
   policy_dt: 0.02
 
   # ---------------------------------------------------------------------------

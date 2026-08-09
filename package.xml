@@ -11,7 +11,13 @@
 
     <depend>unitree_lowlevel</depend>
     <depend>legged_base</depend>
-    
+    <depend>rclcpp</depend>
+    <depend>sensor_msgs</depend>
+
+    <exec_depend>rclpy</exec_depend>
+    <exec_depend>python3-numpy</exec_depend>
+    <exec_depend>std_msgs</exec_depend>
+
     <export>
         <build_type>ament_cmake</build_type>
     </export>
