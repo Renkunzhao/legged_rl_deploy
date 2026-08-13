@@ -190,7 +190,17 @@ if(ament_cmake_FOUND)
 
   install(PROGRAMS
     scripts/depth_image_preprocessor_node.py
+    scripts/stereo_depth_artifact_node.py
     DESTINATION lib/${PROJECT_NAME}
+  )
+
+  install(FILES
+    scripts/depth_image_utils.py
+    DESTINATION lib/${PROJECT_NAME}
+  )
+
+  install(DIRECTORY config/
+    DESTINATION share/${PROJECT_NAME}/config
   )
 
   # 这两行让 ament 生态下的下游也能拿到 targets/依赖（推荐）

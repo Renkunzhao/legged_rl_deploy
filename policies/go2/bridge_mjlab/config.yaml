@@ -1,0 +1,80 @@
+# Recurrent raw-depth policy deployed by legged_rl_deploy_node.
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+ll_dt: 0.005
+clip_final_tau: false
+
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2/bridge_mjlab/policy.onnx
+  policy_dt: 0.02
+
+  model:
+    inputs:
+      - name: obs
+        shape: [1, 47]
+        source: observations
+      - name: camera
+        shape: [1, 1, 72, 96]
+        source: external.depth
+      - name: h_in
+        source: state.hidden
+    outputs:
+      - name: actions
+        shape: [1, 12]
+        target: actions
+      - name: h_out
+        target: state.hidden
+    states:
+      hidden:
+        shape: [1, 1, 128]
+        initialization: zeros
+        max_norm: 100.0
+
+  external_inputs:
+    depth:
+      type: ros_image
+      topic: /bridge_mjlab_raw_depth/depth_image
+      encoding: 32FC1
+      timeout_sec: 0.3
+      value_range: [0.0, 1.0]
+
+  # Policy order: FL, FR, RL, RR. Hardware order: FR, FL, RR, RL.
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  stiffness: [20.0, 20.0, 40.0, 20.0, 20.0, 40.0, 20.0, 20.0, 40.0, 20.0, 20.0, 40.0]
+  damping: [1.0, 1.0, 2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 2.0]
+
+  commands:
+    base_velocity:
+      process_order: [scale, clip]
+      # scale: [1.0, 1.0, 1.0]
+      # min: [-1.0, -1.0, -0.5]
+      # max: [1.0, 1.0, 0.5]
+      scale: [1.0, 0.05, 0.15]  
+      min: [0.0, -0.05, -0.15]
+      max: [0.5, 0.05, 0.15]
+
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -5.0
+      max: 5.0
+      scale: 0.25
+      offset: [-0.1, 0.9, -1.8, 0.1, 0.9, -1.8, -0.1, 0.9, -1.8, 0.1, 0.9, -1.8]
+
+  observations:
+    terms:
+      base_ang_vel_B:
+      projected_gravity:
+      velocity_commands:
+      gait_phase_2:
+        params:
+          cycle_time: 0.6
+          command_threshold: 0.1
+      joint_pos:
+        process_order: [offset]
+        offset: [0.1, -0.9, 1.8, -0.1, -0.9, 1.8, 0.1, -0.9, 1.8, -0.1, -0.9, 1.8]
+      joint_vel:
+      last_action:
+        process_order: [clip]
+        min: -5.0
+        max: 5.0

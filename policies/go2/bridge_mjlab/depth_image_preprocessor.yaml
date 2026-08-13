@@ -1,0 +1,10 @@
+# ROS 2 parameters for scripts/depth_image_preprocessor_node.py.
+depth_image_preprocessor_node:
+  ros__parameters:
+    input_topic: /camera/depth/image_rect_raw
+    output_topic: /bridge_mjlab_raw_depth/depth_image
+    rate_hz: 30.0
+    input_timeout_sec: 0.3
+    min_depth: 0.3
+    max_depth: 3.0
+    depth_scale_16uc1: 0.001

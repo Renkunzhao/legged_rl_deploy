@@ -1,0 +1,12 @@
+# Simulation-only D435i stereo-occlusion artifact calibrated from stand-hw.
+stereo_depth_artifact_node:
+  ros__parameters:
+    input_topic: /camera/depth/image_rect_raw
+    output_topic: /camera/depth/image_rect_raw_stereo_artifact
+    focal_length_px: 389.627960205078
+    # D435i nominal baseline. A 0.055 m fit from stand-hw is kept as a fallback.
+    stereo_baseline_m: 0.050
+    min_depth_jump_m: 0.20
+    max_occlusion_width_px: 24
+    occlusion_side: left
+    depth_scale_16uc1: 0.001

@@ -14,35 +14,11 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32MultiArray
 
+from depth_image_utils import decode_depth
+
 
 _OUTPUT_WIDTH = 96
 _OUTPUT_HEIGHT = 72
-
-
-def decode_depth(message: Image, depth_scale_16uc1: float) -> np.ndarray:
-    if message.encoding == "16UC1":
-        dtype = np.dtype(">u2" if message.is_bigendian else "<u2")
-        scale = depth_scale_16uc1
-    elif message.encoding == "32FC1":
-        dtype = np.dtype(">f4" if message.is_bigendian else "<f4")
-        scale = 1.0
-    else:
-        raise ValueError(f"unsupported depth encoding: {message.encoding}")
-
-    row_bytes = message.width * dtype.itemsize
-    required_bytes = message.step * message.height
-    if message.width == 0 or message.height == 0:
-        raise ValueError("depth image dimensions must be nonzero")
-    if message.step < row_bytes or len(message.data) < required_bytes:
-        raise ValueError("malformed depth image buffer")
-
-    depth = np.ndarray(
-        shape=(message.height, message.width),
-        dtype=dtype,
-        buffer=memoryview(message.data),
-        strides=(message.step, dtype.itemsize),
-    )
-    return depth.astype(np.float32) * scale
 
 
 def center_crop_and_resize(depth: np.ndarray) -> np.ndarray:
