@@ -144,6 +144,8 @@ void PolicySlot::init() {
 
 void PolicySlot::reset(const LeggedState& state) {
   std::fill(input_buf_.begin(), input_buf_.end(), 0.0f);
+  gait_phase_motion_active_ = false;
+  gait_phase_elapsed_sec_ = 0.0f;
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
   std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
   std::fill(velocity_command_.begin(), velocity_command_.end(), 0.0f);
@@ -164,7 +166,7 @@ void PolicySlot::reset(const LeggedState& state) {
         continue;
       }
     }
-    output_buf_[i] = 0.0f;
+    output_buf_[i] = 0.0f; 
   }
 
   if (mimic_source_) {
@@ -590,13 +592,55 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
       const float cycle_time = term.params["cycle_time"].as<float>();
       const float command_threshold =
           term.params["command_threshold"].as<float>(-1.0f);
+      const bool reset_on_motion =
+          term.params["reset_on_motion"].as<bool>(false);
+
+      if (!std::isfinite(cycle_time) || cycle_time <= 0.0f) {
+        throw std::runtime_error(
+            "[PolicySlot:" + name_ +
+            "] gait_phase_2 cycle_time must be finite and positive");
+      }
+
       const float command_norm = std::sqrt(
           velocity_command_[0] * velocity_command_[0] +
           velocity_command_[1] * velocity_command_[1] +
           velocity_command_[2] * velocity_command_[2]);
-      if (command_threshold < 0.0f || command_norm >= command_threshold) {
-        const float phase = loop_cnt * ll_dt / cycle_time;
-        constexpr float kTwoPi = 6.28318530718f;
+
+      const bool is_moving =
+          command_threshold < 0.0f || command_norm >= command_threshold;
+
+      constexpr float kTwoPi = 6.28318530718f;
+
+      if (!is_moving) {
+        // Training contract: stationary phase observation is [0, 0].
+        v[0] = 0.0f;
+        v[1] = 0.0f;
+
+        if (reset_on_motion) {
+          gait_phase_motion_active_ = false;
+          gait_phase_elapsed_sec_ = 0.0f;
+        }
+      } else if (reset_on_motion) {
+        if (!gait_phase_motion_active_) {
+          // First moving frame must be phase=0 -> [sin(0), cos(0)] = [0, 1].
+          gait_phase_motion_active_ = true;
+          gait_phase_elapsed_sec_ = 0.0f;
+
+          std::cout << "[PolicySlot:" << name_
+                    << "] gait phase reset on motion start: [0, 1]"
+                    << std::endl;
+        }
+
+        const float phase = gait_phase_elapsed_sec_ / cycle_time;
+        v[0] = std::sin(kTwoPi * phase);
+        v[1] = std::cos(kTwoPi * phase);
+
+        // assembleObsFrame() runs once per policy inference.
+        gait_phase_elapsed_sec_ += policy_dt_;
+      } else {
+        // Preserve legacy global-phase behavior for other policies.
+        const float phase =
+            static_cast<float>(loop_cnt * ll_dt / cycle_time);
         v[0] = std::sin(kTwoPi * phase);
         v[1] = std::cos(kTwoPi * phase);
       }

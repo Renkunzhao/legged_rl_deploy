@@ -121,6 +121,9 @@ private:
   std::unordered_map<std::string, Processor> actions_;
   std::vector<float> velocity_command_{0.0f, 0.0f, 0.0f};
   std::vector<float> velocity_rate_limit_;
+  // State for gait_phase_2 reset-on-motion behavior.
+  bool gait_phase_motion_active_ = false;
+  float gait_phase_elapsed_sec_ = 0.0f;
 
   std::vector<ObsTerm> obs_terms_;
   std::unordered_map<std::string, size_t> obs_term_indices_;
