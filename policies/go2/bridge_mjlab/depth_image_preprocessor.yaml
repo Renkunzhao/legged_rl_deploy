@@ -1,10 +1,39 @@
-# ROS 2 parameters for scripts/depth_image_preprocessor_node.py.
 depth_image_preprocessor_node:
   ros__parameters:
-    input_topic: /camera/depth/image_rect_raw
-    output_topic: /bridge_mjlab_raw_depth/depth_image
-    rate_hz: 30.0
-    input_timeout_sec: 0.3
-    min_depth: 0.3
-    max_depth: 3.0
-    depth_scale_16uc1: 0.001
+    input:
+      topic: /camera/depth/image_rect_raw
+      width: 640
+      height: 480
+      depth_scale_16uc1: 0.001
+      camera_info:
+        topic: /camera/depth/camera_info
+        # D435i calibrated_640x480_30: [fx, fy, cx, cy].
+        intrinsics: [389.627960205078, 389.627960205078, 323.2578125, 237.428558349609]
+        intrinsics_atol: 0.001
+        distortion_model: plumb_bob
+        distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
+        distortion_atol: 1.0e-9
+    output:
+      topic: /bridge_mjlab_raw_depth/depth_image
+
+    # stereo_occlusion is simulation-only. Remove it and its parameter block
+    # when the input comes from a physical stereo camera.
+    process_order: [stereo_occlusion, replace_invalid, clip, resize_nearest, affine]
+    stereo_occlusion:
+      baseline_m: 0.050
+      min_depth_jump_m: 0.20
+      max_width_px: 24
+      side: left
+    replace_invalid:
+      valid_min: 0.0
+      valid_min_inclusive: false
+      value: 3.0
+    clip:
+      min: 0.3
+      max: 3.0
+    resize_nearest:
+      width: 96
+      height: 72
+    affine:
+      scale: 0.3333333333333333
+      offset: 0.0

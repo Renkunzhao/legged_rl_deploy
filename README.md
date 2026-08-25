@@ -174,26 +174,22 @@ From the workspace root, use the helper wrapper:
 
 ```bash
 source src/unitree_lowlevel/scripts/setup.sh <network-interface> <ros-distro>
-
-# Simulation only: reproduce the calibrated D435i stereo-occlusion stripe.
-ros2 run legged_rl_deploy stereo_depth_artifact_node.py \
-  --ros-args --params-file \
-  src/legged_rl_deploy/config/stereo_depth_artifact.yaml
+source src/unitree_lowlevel/scripts/setup.sh lo jazzy
 
 ros2 run legged_rl_deploy depth_image_preprocessor_node.py \
   --ros-args --params-file \
-  src/legged_rl_deploy/policies/go2/bridge_mjlab/depth_image_preprocessor.yaml \
-  -p input_topic:=/camera/depth/image_rect_raw_stereo_artifact
+  src/legged_rl_deploy/<policy-directory>/depth_image_preprocessor.yaml
 
 ./src/legged_rl_deploy/scripts/run.sh <network-interface> <ros-distro> ros2 run legged_rl_deploy legged_rl_deploy_node <network-interface> <config-file>
 ```
 
-The stereo artifact node is for MuJoCo deployment tests only. Hardware depth
-must go directly to the depth preprocessor without this node. It detects a
-far-to-near horizontal depth discontinuity and invalidates only the far-ground
-side. The default `0.050 m` baseline is the nominal D435i stereo baseline. The
-`stand-hw` stripe-width fit gave `0.055 m`; that value remains documented in the
-artifact configuration as an empirical fallback.
+`depth_image_preprocessor_node.py` is the only depth preprocessing executable.
+Each policy YAML selects an ordered subset of `stereo_occlusion`,
+`replace_invalid`, `clip`, `center_crop`, `resize_nearest`, and `affine`.
+The node rejects unknown, repeated, out-of-order, missing, and unused operation
+parameters at startup. The Bridge YAML includes simulation-only stereo
+occlusion in the same pipeline; remove that operation and its parameter block
+when using a physical stereo camera.
 
 The wrapper:
 
