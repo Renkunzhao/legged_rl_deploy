@@ -41,7 +41,11 @@ int main(int argc, char* argv[]) {
 
   exec.spin();
 
-  rclcpp::shutdown();
+  exec.remove_node(go2_node);
+  go2_node.reset();
+  if (rclcpp::ok()) {
+    rclcpp::shutdown();
+  }
   csvLogger.save();
   return 0;
 }

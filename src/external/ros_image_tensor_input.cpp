@@ -47,8 +47,10 @@ RosImageTensorInput::RosImageTensorInput(
   latest_.assign(height_ * width_, 0.0f);
   const std::string topic = config["topic"].as<std::string>();
   if (topic.empty()) throw std::runtime_error(source_name_ + " topic must not be empty");
+  auto image_qos = rclcpp::SensorDataQoS();
+  image_qos.keep_last(1);
   subscription_ = node.create_subscription<sensor_msgs::msg::Image>(
-      topic, rclcpp::SensorDataQoS(),
+      topic, image_qos,
       [this](const sensor_msgs::msg::Image::SharedPtr message) {
         callback(*message);
       });

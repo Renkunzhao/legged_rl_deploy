@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(legged_rl_deploy VERSION 0.1.0 LANGUAGES CXX)
+project(legged_rl_deploy VERSION 0.1.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -29,6 +29,16 @@ find_package(unitree_lowlevel REQUIRED)
 find_package(legged_base REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Torch QUIET)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(sensor_msgs REQUIRED)
+
+set(interfaces_target ${PROJECT_NAME}_interfaces)
+rosidl_generate_interfaces(${interfaces_target}
+  "msg/DeployStatus.msg"
+  LIBRARY_NAME ${PROJECT_NAME}
+)
 
 ##############################
 # 3️⃣ 创建库（导出给上游用）
@@ -57,6 +67,15 @@ target_link_libraries(${PROJECT_NAME}
   legged_base::legged_base
   ZLIB::ZLIB
 )
+
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  sensor_msgs
+)
+
+rosidl_get_typesupport_target(cpp_typesupport_target
+  ${interfaces_target} rosidl_typesupport_cpp)
+target_link_libraries(${PROJECT_NAME} "${cpp_typesupport_target}")
 
 ##############################
 # 4.1️⃣ 绑定 Torch（可选）
@@ -172,30 +191,22 @@ endif()
 ##############################
 # 8️⃣ ROS2 / ament_cmake 支持
 ##############################
-find_package(ament_cmake QUIET)
-if(ament_cmake_FOUND)
-  message(STATUS "Found ament_cmake")
-  find_package(rclcpp REQUIRED)
-  find_package(sensor_msgs REQUIRED)
+install(TARGETS legged_rl_deploy_node
+  DESTINATION lib/${PROJECT_NAME}
+)
 
-  ament_target_dependencies(${PROJECT_NAME}
-    rclcpp
-    sensor_msgs
-  )
+install(PROGRAMS
+  scripts/depth_image_preprocessor_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
-  # 安装已有可执行文件
-  install(TARGETS legged_rl_deploy_node
-    DESTINATION lib/${PROJECT_NAME}
-  )
+ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+  unitree_lowlevel
+  legged_base
+  rclcpp
+  sensor_msgs
+  rosidl_default_runtime
+)
 
-  install(PROGRAMS
-    scripts/depth_image_preprocessor_node.py
-    DESTINATION lib/${PROJECT_NAME}
-  )
-
-  # 这两行让 ament 生态下的下游也能拿到 targets/依赖（推荐）
-  ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
-  ament_export_dependencies(unitree_lowlevel legged_base rclcpp sensor_msgs)
-
-  ament_package()
-endif()
+ament_package()

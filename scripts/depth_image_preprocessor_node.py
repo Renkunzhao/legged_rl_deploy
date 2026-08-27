@@ -10,7 +10,12 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+)
 from sensor_msgs.msg import CameraInfo, Image
 
 _PROCESS_ORDER = (
@@ -68,6 +73,13 @@ _OPERATION_PARAMETERS = {
 }
 
 _ROS_PARAMETERS = {"use_sim_time", "start_type_description_service"}
+
+_SENSOR_DATA_QOS = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+)
 
 
 def decode_depth_image(message: Image, depth_scale_16uc1: float) -> np.ndarray:
@@ -270,19 +282,19 @@ class DepthImagePreprocessorNode(Node):
         self.camera_info_valid = False
         self.focal_length_px = 0.0
         self.depth_publisher = self.create_publisher(
-            Image, self.output_topic, qos_profile_sensor_data
+            Image, self.output_topic, _SENSOR_DATA_QOS
         )
         self.create_subscription(
             CameraInfo,
             self.camera_info_topic,
             self._on_camera_info,
-            qos_profile_sensor_data,
+            _SENSOR_DATA_QOS,
         )
         self.create_subscription(
             Image,
             self.input_topic,
             self._on_depth,
-            qos_profile_sensor_data,
+            _SENSOR_DATA_QOS,
         )
         self.get_logger().info(
             f"configured {self.input_width}x{self.input_height} -> "

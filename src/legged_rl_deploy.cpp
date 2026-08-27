@@ -1,6 +1,7 @@
 #include "legged_rl_deploy/legged_rl_deploy.h"
 
 #include <cmath>
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -8,6 +9,7 @@
 #include <vector>
 
 #include <legged_base/Utils.h>
+#include <logger/CsvLogger.h>
 
 namespace legged_rl_deploy {
 
@@ -110,6 +112,21 @@ void applyPolicyFileOverrides(const std::string& pname, const YAML::Node& entry,
 LeggedRLDeploy::LeggedRLDeploy(std::string configFile) {
   configNode_ = YAML::LoadFile(configFile);
   std::cout << "[LeggedRLDeploy] Load config from " << configFile << std::endl;
+  declare_parameter<bool>("evaluation_mode", false);
+  evaluation_mode_ = get_parameter("evaluation_mode").as_bool();
+  RCLCPP_INFO(
+      get_logger(), "Evaluation mode is %s", evaluation_mode_ ? "enabled" : "disabled");
+  if (evaluation_mode_) {
+    status_publisher_ = create_publisher<msg::DeployStatus>(
+        "/legged_rl_deploy/status",
+        rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
+  }
+}
+
+LeggedRLDeploy::~LeggedRLDeploy() {
+  if (sim_timer_) {
+    sim_timer_->stop_wall_timer();
+  }
 }
 
 // ===========================================================================
@@ -127,6 +144,11 @@ void LeggedRLDeploy::switchToPolicy(const std::string& name) {
   active_name_ = name;
   active_slot_ = it->second.get();
   active_slot_->reset(real_state_);
+  if (evaluation_mode_) {
+    policy_output_valid_ = false;
+    last_fault_.clear();
+    ++policy_reset_sequence_;
+  }
 }
 
 // ===========================================================================
@@ -246,6 +268,11 @@ void LeggedRLDeploy::resetHighController() {
     policy_fsm_.setState(policy_fsm_.defaultState());
   } else if (active_slot_) {
     active_slot_->reset(real_state_);
+    if (evaluation_mode_) {
+      policy_output_valid_ = false;
+      last_fault_.clear();
+      ++policy_reset_sequence_;
+    }
   }
 }
 
@@ -261,10 +288,18 @@ void LeggedRLDeploy::updateHighController() {
   // 2) Run active policy
   try {
     active_slot_->update(real_state_, gamepad_, loop_cnt_, ll_dt_);
+    if (evaluation_mode_) {
+      policy_output_valid_ = active_slot_->hasValidOutput();
+    }
   } catch (const std::exception& error) {
     std::cerr << "[LeggedRLDeploy] Policy failure: " << error.what()
               << ". Emergency stop engaged." << std::endl;
     safetyFlag = false;
+    if (evaluation_mode_) {
+      policy_output_valid_ = false;
+      last_fault_ = error.what();
+      publishStatus(true);
+    }
     eStop();
     return;
   }
@@ -294,6 +329,43 @@ void LeggedRLDeploy::updateHighController() {
       jnt_cmd_.tau[j] = 0.0f;
     }
   }
+}
+
+void LeggedRLDeploy::log() {
+  LowLevelController::log();
+  if (!evaluation_mode_) {
+    return;
+  }
+  if (previous_logged_state_ == RobotState::HighController &&
+      (current_state_ == RobotState::FixStand ||
+       current_state_ == RobotState::IDLE)) {
+    auto& logger = CsvLogger::getInstance();
+    logger.clear();
+    logger.init();
+  }
+  previous_logged_state_ = current_state_;
+  publishStatus(false);
+}
+
+void LeggedRLDeploy::publishStatus(bool force) {
+  const auto current_time = std::chrono::steady_clock::now();
+  if (!force &&
+      current_time - last_status_publish_ < std::chrono::milliseconds(50)) {
+    return;
+  }
+
+  msg::DeployStatus status;
+  status.controller_state = static_cast<uint8_t>(current_state_);
+  status.safety_ok = safetyFlag;
+  status.fix_stand_ready =
+      current_state_ == RobotState::FixStand && motiontime_ >= 500;
+  status.policy_reset_sequence = policy_reset_sequence_;
+  const bool policy_running = current_state_ == RobotState::HighController;
+  status.policy_output_valid = policy_running && policy_output_valid_;
+  status.last_fault = last_fault_;
+
+  status_publisher_->publish(status);
+  last_status_publish_ = current_time;
 }
 
 } // namespace legged_rl_deploy
