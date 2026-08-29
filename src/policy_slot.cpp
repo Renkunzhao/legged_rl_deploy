@@ -307,6 +307,14 @@ void PolicySlot::calculateObsTerm(ObsTerm& term) {
   if (term.name == "eulerZYX_rpy") term.dim = 3;
   if (term.name == "roll_pitch") term.dim = 2;
   if (term.name == "velocity_commands") term.dim = 3;
+  if (term.name == "velocity_support_commands") {
+    if (commands_.find("support_width") == commands_.end()) {
+      throw std::runtime_error(
+          "[PolicySlot:" + name_ +
+          "] velocity_support_commands requires commands.support_width");
+    }
+    term.dim = 4;
+  }
   if (term.name == "joint_pos") term.dim = robot_model_.nJoints();
   if (term.name == "joint_vel") term.dim = robot_model_.nJoints();
   if (term.name == "last_action") term.dim = output_dim_;
@@ -515,21 +523,27 @@ void PolicySlot::initExternalInputs() {
   }
 }
 
-void PolicySlot::updateVelocityCommand(
-    const unitree::common::Gamepad& gamepad) {
+void PolicySlot::updateCommands(const unitree::common::Gamepad& gamepad) {
   std::vector<float> target{gamepad.ly, -gamepad.lx, -gamepad.rx};
   const auto processor = commands_.find("base_velocity");
   if (processor != commands_.end()) processor->second.process(target);
 
   if (velocity_rate_limit_.empty()) {
     velocity_command_ = std::move(target);
-    return;
+  } else {
+    for (size_t i = 0; i < velocity_command_.size(); ++i) {
+      const float max_delta = velocity_rate_limit_[i] * policy_dt_;
+      const float delta = std::clamp(target[i] - velocity_command_[i],
+                                     -max_delta, max_delta);
+      velocity_command_[i] += delta;
+    }
   }
-  for (size_t i = 0; i < velocity_command_.size(); ++i) {
-    const float max_delta = velocity_rate_limit_[i] * policy_dt_;
-    const float delta = std::clamp(target[i] - velocity_command_[i],
-                                   -max_delta, max_delta);
-    velocity_command_[i] += delta;
+
+  const auto support_width_processor = commands_.find("support_width");
+  if (support_width_processor != commands_.end()) {
+    std::vector<float> support_width{gamepad.ry};
+    support_width_processor->second.process(support_width);
+    support_width_command_ = support_width[0];
   }
 }
 
@@ -537,7 +551,7 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
                                   const unitree::common::Gamepad& gamepad,
                                   size_t loop_cnt, double ll_dt) {
   std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
-  updateVelocityCommand(gamepad);
+  updateCommands(gamepad);
 
   if (mimic_source_) {
     mimic_source_->step(state);
@@ -698,6 +712,12 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
 
     } else if (term.name == "velocity_commands") {
       v = velocity_command_;
+
+    } else if (term.name == "velocity_support_commands") {
+      v[0] = velocity_command_[0];
+      v[1] = velocity_command_[1];
+      v[2] = velocity_command_[2];
+      v[3] = support_width_command_;
 
     } else if (term.name == "joint_pos") {
       for (size_t i = 0; i < robot_model_.nJoints(); ++i) {

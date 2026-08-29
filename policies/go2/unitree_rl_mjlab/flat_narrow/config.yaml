@@ -1,0 +1,65 @@
+# Unitree-Go2-Flat-Narrow-Baseline.
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+ll_dt: 0.005
+clip_final_tau: false
+
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2/unitree_rl_mjlab/flat_narrow/policy.onnx
+  policy_dt: 0.02
+
+  model:
+    inputs:
+      - name: obs
+        shape: [1, 48]
+        source: observations
+    outputs:
+      - name: actions
+        shape: [1, 12]
+        target: actions
+
+  # Policy joint order: FL, FR, RL, RR. Go2 hardware order: FR, FL, RR, RL.
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  stiffness: [20.0, 20.0, 40.0, 20.0, 20.0, 40.0, 20.0, 20.0, 40.0, 20.0, 20.0, 40.0]
+  damping: [1.0, 1.0, 2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 2.0]
+
+  commands:
+    base_velocity:
+      process_order: [scale, clip]
+      scale: [1.0, 0.5, 0.5]
+      min: [-1.0, -0.5, -0.5]
+      max: [1.0, 0.5, 0.5]
+    support_width:
+      process_order: [scale, offset, clip]
+      scale: 0.125
+      offset: 0.175
+      min: 0.05
+      max: 0.30
+
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -3.0
+      max: 3.0
+      scale: 0.25
+      offset: [-0.1, 0.9, -1.8, 0.1, 0.9, -1.8, -0.1, 0.9, -1.8, 0.1, 0.9, -1.8]
+
+  # Exact 48D actor order. Observation normalization is embedded in the ONNX graph.
+  observations:
+    terms:
+      base_ang_vel_B:
+      projected_gravity:
+      velocity_support_commands:
+      gait_phase_2:
+        params:
+          cycle_time: 0.6
+          command_threshold: 0.1
+          reset_on_motion: true
+      joint_pos:
+        process_order: [offset]
+        offset: [0.1, -0.9, 1.8, -0.1, -0.9, 1.8, 0.1, -0.9, 1.8, -0.1, -0.9, 1.8]
+      joint_vel:
+      last_action:
+        process_order: [clip]
+        min: -3.0
+        max: 3.0

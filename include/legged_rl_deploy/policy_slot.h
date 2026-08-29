@@ -76,7 +76,7 @@ private:
   void computeTermHistoryCapacities();
   void initMimicSource();
   void initExternalInputs();
-  void updateVelocityCommand(const unitree::common::Gamepad& gamepad);
+  void updateCommands(const unitree::common::Gamepad& gamepad);
   void assembleObsFrame(const LeggedState& state,
                         const unitree::common::Gamepad& gamepad,
                         size_t loop_cnt, double ll_dt);
@@ -121,6 +121,7 @@ private:
   std::unordered_map<std::string, Processor> actions_;
   std::vector<float> velocity_command_{0.0f, 0.0f, 0.0f};
   std::vector<float> velocity_rate_limit_;
+  float support_width_command_ = 0.0f;
   // State for gait_phase_2 reset-on-motion behavior.
   bool gait_phase_motion_active_ = false;
   float gait_phase_elapsed_sec_ = 0.0f;
