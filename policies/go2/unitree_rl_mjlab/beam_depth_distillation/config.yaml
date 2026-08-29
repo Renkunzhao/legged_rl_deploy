@@ -52,11 +52,13 @@ policy:
       process_order: [scale, clip]
       scale: [1.0, 0.0, 0.0]
       min: [0.0, 0.0, 0.0]
-      max: [0.8, 0.0, 0.0]
+      max: [0.6, 0.0, 0.0]
 
   actions:
     JointPositionAction:
-      process_order: [scale, offset]
+      process_order: [clip, scale, offset]
+      min: -3.0
+      max: 3.0
       scale: 0.25
       offset: [-0.1, 0.9, -1.8, 0.1, 0.9, -1.8, -0.1, 0.9, -1.8, 0.1, 0.9, -1.8]
 
@@ -70,8 +72,12 @@ policy:
         params:
           cycle_time: 0.6
           command_threshold: 0.1
+          reset_on_motion: true
       joint_pos:
         process_order: [offset]
         offset: [0.1, -0.9, 1.8, -0.1, -0.9, 1.8, 0.1, -0.9, 1.8, -0.1, -0.9, 1.8]
       joint_vel:
       last_action:
+        process_order: [clip]
+        min: -3.0
+        max: 3.0

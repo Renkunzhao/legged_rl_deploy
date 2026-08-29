@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import array
 import math
 
 import numpy as np
@@ -279,12 +280,36 @@ class DepthImagePreprocessorNode(Node):
             self.output_width = self.resize_nearest_width
             self.output_height = self.resize_nearest_height
 
+        self._u16_pipeline_is_noop = self.process_order == (
+            "replace_invalid",
+        ) and (
+            (
+                self.replace_invalid_valid_min_inclusive
+                and self.replace_invalid_valid_min <= 0.0
+            )
+            or (
+                not self.replace_invalid_valid_min_inclusive
+                and self.replace_invalid_valid_min < 0.0
+            )
+        )
+
+        self._output_message = Image()
+        self._output_message.height = self.output_height
+        self._output_message.width = self.output_width
+        self._output_message.encoding = "32FC1"
+        self._output_message.is_bigendian = False
+        self._output_message.step = self.output_width * np.dtype(np.float32).itemsize
+        output_size = self.output_height * self._output_message.step
+        self._output_buffer = array.array("B", [0]) * output_size
+        self._output_message.data = self._output_buffer
+        self._output_buffer_view = memoryview(self._output_buffer)
+
         self.camera_info_valid = False
         self.focal_length_px = 0.0
         self.depth_publisher = self.create_publisher(
             Image, self.output_topic, _SENSOR_DATA_QOS
         )
-        self.create_subscription(
+        self._camera_info_subscription = self.create_subscription(
             CameraInfo,
             self.camera_info_topic,
             self._on_camera_info,
@@ -307,7 +332,10 @@ class DepthImagePreprocessorNode(Node):
         allowed = set(_REQUIRED_PARAMETERS)
         for parameters in _OPERATION_PARAMETERS.values():
             allowed.update(parameters)
-        actual = set(self.list_parameters([], depth=10).names)
+        if hasattr(self, "list_parameters"):
+            actual = set(self.list_parameters([], depth=10).names)
+        else:
+            actual = set(self.get_parameters_by_prefix(""))
         unknown = sorted(actual - allowed - _ROS_PARAMETERS)
         if unknown:
             raise ValueError(f"unknown parameters: {unknown}")
@@ -467,6 +495,10 @@ class DepthImagePreprocessorNode(Node):
             self.get_logger().info("camera_info matches the configured input contract")
         self.focal_length_px = float(message.k[0])
         self.camera_info_valid = True
+        subscription = self._camera_info_subscription
+        if subscription is not None:
+            self._camera_info_subscription = None
+            self.destroy_subscription(subscription)
 
     def _on_depth(self, message: Image) -> None:
         if not self.camera_info_valid:
@@ -482,54 +514,52 @@ class DepthImagePreprocessorNode(Node):
             )
 
         depth_m = decode_depth_image(message, self.depth_scale_16uc1)
-        for operation in self.process_order:
-            if operation == "stereo_occlusion":
-                mask = stereo_occlusion_mask(
-                    depth_m,
-                    focal_length_px=self.focal_length_px,
-                    baseline_m=self.stereo_occlusion_baseline_m,
-                    min_depth_jump_m=self.stereo_occlusion_min_depth_jump_m,
-                    max_width_px=self.stereo_occlusion_max_width_px,
-                    side=self.stereo_occlusion_side,
-                )
-                depth_m[mask] = 0.0
-            elif operation == "replace_invalid":
-                invalid = ~np.isfinite(depth_m)
-                if self.replace_invalid_valid_min_inclusive:
-                    invalid |= depth_m < self.replace_invalid_valid_min
+        fast_u16_path = message.encoding == "16UC1" and self._u16_pipeline_is_noop
+        if not fast_u16_path:
+            for operation in self.process_order:
+                if operation == "stereo_occlusion":
+                    mask = stereo_occlusion_mask(
+                        depth_m,
+                        focal_length_px=self.focal_length_px,
+                        baseline_m=self.stereo_occlusion_baseline_m,
+                        min_depth_jump_m=self.stereo_occlusion_min_depth_jump_m,
+                        max_width_px=self.stereo_occlusion_max_width_px,
+                        side=self.stereo_occlusion_side,
+                    )
+                    depth_m[mask] = 0.0
+                elif operation == "replace_invalid":
+                    invalid = ~np.isfinite(depth_m)
+                    if self.replace_invalid_valid_min_inclusive:
+                        invalid |= depth_m < self.replace_invalid_valid_min
+                    else:
+                        invalid |= depth_m <= self.replace_invalid_valid_min
+                    depth_m[invalid] = self.replace_invalid_value
+                elif operation == "clip":
+                    np.clip(depth_m, self.clip_min, self.clip_max, out=depth_m)
+                elif operation == "center_crop":
+                    depth_m = center_crop(
+                        depth_m,
+                        self.center_crop_width,
+                        self.center_crop_height,
+                    )
+                elif operation == "resize_nearest":
+                    depth_m = resize_nearest(
+                        depth_m,
+                        self.resize_nearest_width,
+                        self.resize_nearest_height,
+                    )
+                elif operation == "affine":
+                    depth_m = depth_m * self.affine_scale + self.affine_offset
                 else:
-                    invalid |= depth_m <= self.replace_invalid_valid_min
-                depth_m[invalid] = self.replace_invalid_value
-            elif operation == "clip":
-                np.clip(depth_m, self.clip_min, self.clip_max, out=depth_m)
-            elif operation == "center_crop":
-                depth_m = center_crop(
-                    depth_m,
-                    self.center_crop_width,
-                    self.center_crop_height,
-                )
-            elif operation == "resize_nearest":
-                depth_m = resize_nearest(
-                    depth_m,
-                    self.resize_nearest_width,
-                    self.resize_nearest_height,
-                )
-            elif operation == "affine":
-                depth_m = depth_m * self.affine_scale + self.affine_offset
-            else:
-                raise RuntimeError(f"unimplemented process operation: {operation}")
+                    raise RuntimeError(f"unimplemented process operation: {operation}")
 
-        if not np.all(np.isfinite(depth_m)):
-            raise ValueError("preprocessed depth image contains NaN or Inf")
+            if not np.all(np.isfinite(depth_m)):
+                raise ValueError("preprocessed depth image contains NaN or Inf")
         depth_m = np.ascontiguousarray(depth_m, dtype="<f4")
 
-        output = Image()
+        output = self._output_message
         output.header = message.header
-        output.height, output.width = depth_m.shape
-        output.encoding = "32FC1"
-        output.is_bigendian = False
-        output.step = output.width * np.dtype(np.float32).itemsize
-        output.data = depth_m.tobytes()
+        self._output_buffer_view[:] = memoryview(depth_m).cast("B")
         self.depth_publisher.publish(output)
 
 

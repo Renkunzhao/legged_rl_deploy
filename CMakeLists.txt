@@ -73,9 +73,14 @@ ament_target_dependencies(${PROJECT_NAME}
   sensor_msgs
 )
 
-rosidl_get_typesupport_target(cpp_typesupport_target
-  ${interfaces_target} rosidl_typesupport_cpp)
-target_link_libraries(${PROJECT_NAME} "${cpp_typesupport_target}")
+if(COMMAND rosidl_get_typesupport_target)
+  rosidl_get_typesupport_target(cpp_typesupport_target
+    ${interfaces_target} rosidl_typesupport_cpp)
+  target_link_libraries(${PROJECT_NAME} "${cpp_typesupport_target}")
+else()
+  rosidl_target_interfaces(${PROJECT_NAME}
+    ${interfaces_target} rosidl_typesupport_cpp)
+endif()
 
 ##############################
 # 4.1️⃣ 绑定 Torch（可选）
