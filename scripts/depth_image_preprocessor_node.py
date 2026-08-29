@@ -300,9 +300,8 @@ class DepthImagePreprocessorNode(Node):
         self._output_message.is_bigendian = False
         self._output_message.step = self.output_width * np.dtype(np.float32).itemsize
         output_size = self.output_height * self._output_message.step
-        self._output_buffer = array.array("B", [0]) * output_size
-        self._output_message.data = self._output_buffer
-        self._output_buffer_view = memoryview(self._output_buffer)
+        self._output_message.data = array.array("B", [0]) * output_size
+        self._output_buffer_view = memoryview(self._output_message.data)
 
         self.camera_info_valid = False
         self.focal_length_px = 0.0

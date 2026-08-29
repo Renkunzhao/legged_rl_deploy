@@ -14,7 +14,7 @@ policy:
         shape: [1, 47]
         source: observations
       - name: depth
-        shape: [1, 1, 480, 848]
+        shape: [1, 1, 240, 424]
         source: external.depth
       - name: h_in
         source: state.hidden

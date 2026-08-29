@@ -2,13 +2,13 @@ depth_image_preprocessor_node:
   ros__parameters:
     input:
       topic: /camera/depth/image_rect_raw
-      width: 848
-      height: 480
+      width: 424
+      height: 240
       depth_scale_16uc1: 0.001
       camera_info:
         topic: /camera/depth/camera_info
-        # D435i calibrated_848x480_30: [fx, fy, cx, cy].
-        intrinsics: [430.2142028808594, 430.2142028808594, 427.59716796875, 237.16070556640625]
+        # D435i calibrated_424x240_90: [fx, fy, cx, cy].
+        intrinsics: [215.10710144043, 215.10710144043, 213.798583984375, 118.580352783203]
         intrinsics_atol: 0.001
         distortion_model: plumb_bob
         distortion: [0.0, 0.0, 0.0, 0.0, 0.0]
@@ -16,7 +16,7 @@ depth_image_preprocessor_node:
     output:
       topic: /unitree_go2_beam_depth/depth_m
 
-    # The ONNX graph performs clipping, 2::4 sampling, and normalization.
+    # The ONNX graph performs clipping, 1::2 sampling, and normalization.
     process_order: [replace_invalid]
     replace_invalid:
       valid_min: 0.0
