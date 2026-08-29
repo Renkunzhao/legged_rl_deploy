@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import array
 import math
+import time
+from typing import Sequence, Tuple
 
 import numpy as np
 import rclpy
@@ -303,6 +305,11 @@ class DepthImagePreprocessorNode(Node):
         self._output_message.data = array.array("B", [0]) * output_size
         self._output_buffer_view = memoryview(self._output_message.data)
 
+        self._stats_arrival_ns = []
+        self._stats_input_age_ms = []
+        self._stats_process_ms = []
+        self._stats_timer = self.create_timer(1.0, self._log_statistics)
+
         self.camera_info_valid = False
         self.focal_length_px = 0.0
         self.depth_publisher = self.create_publisher(
@@ -325,6 +332,33 @@ class DepthImagePreprocessorNode(Node):
             f"{self.output_width}x{self.output_height} depth pipeline "
             f"{list(self.process_order)} for {self.input_topic} -> "
             f"{self.output_topic}"
+        )
+
+    @staticmethod
+    def _p95_and_max(values: Sequence[float]) -> Tuple[float, float]:
+        if not values:
+            return float("nan"), float("nan")
+        return float(np.percentile(values, 95)), max(values)
+
+    def _log_statistics(self) -> None:
+        arrival_ns = self._stats_arrival_ns
+        input_age_ms = self._stats_input_age_ms
+        process_ms = self._stats_process_ms
+        self._stats_arrival_ns = []
+        self._stats_input_age_ms = []
+        self._stats_process_ms = []
+
+        hz = 0.0
+        if len(arrival_ns) >= 2:
+            span_sec = (arrival_ns[-1] - arrival_ns[0]) * 1.0e-9
+            if span_sec > 0.0:
+                hz = (len(arrival_ns) - 1) / span_sec
+        input_p95, input_max = self._p95_and_max(input_age_ms)
+        process_p95, process_max = self._p95_and_max(process_ms)
+        self.get_logger().info(
+            f"[depth_preprocessor] hz={hz:.1f} "
+            f"input_age_ms(p95/max)={input_p95:.2f}/{input_max:.2f} "
+            f"process_ms(p95/max)={process_p95:.2f}/{process_max:.2f}"
         )
 
     def _validate_parameter_names(self) -> None:
@@ -500,6 +534,16 @@ class DepthImagePreprocessorNode(Node):
             self.destroy_subscription(subscription)
 
     def _on_depth(self, message: Image) -> None:
+        callback_start_ns = time.monotonic_ns()
+        self._stats_arrival_ns.append(callback_start_ns)
+        stamp_ns = int(message.header.stamp.sec) * 1_000_000_000 + int(
+            message.header.stamp.nanosec
+        )
+        if stamp_ns > 0:
+            self._stats_input_age_ms.append(
+                (self.get_clock().now().nanoseconds - stamp_ns) * 1.0e-6
+            )
+
         if not self.camera_info_valid:
             self.get_logger().warning(
                 "waiting for matching camera_info",
@@ -559,6 +603,9 @@ class DepthImagePreprocessorNode(Node):
         output = self._output_message
         output.header = message.header
         self._output_buffer_view[:] = memoryview(depth_m).cast("B")
+        self._stats_process_ms.append(
+            (time.monotonic_ns() - callback_start_ns) * 1.0e-6
+        )
         self.depth_publisher.publish(output)
 
 

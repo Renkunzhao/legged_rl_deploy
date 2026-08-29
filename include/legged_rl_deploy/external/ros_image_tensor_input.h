@@ -22,9 +22,12 @@ public:
 
 private:
   void callback(const sensor_msgs::msg::Image& message);
+  void logStatistics();
 
   std::string source_name_;
   std::string encoding_;
+  rclcpp::Logger logger_;
+  rclcpp::Clock::SharedPtr clock_;
   size_t height_ = 0;
   size_t width_ = 0;
   std::chrono::duration<double> timeout_;
@@ -35,9 +38,16 @@ private:
   mutable std::mutex mutex_;
   std::vector<float> latest_;
   std::chrono::steady_clock::time_point received_at_{};
+  int64_t latest_header_stamp_ns_ = 0;
   bool received_ = false;
   std::string error_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
+  rclcpp::TimerBase::SharedPtr statistics_timer_;
+
+  mutable std::mutex statistics_mutex_;
+  std::vector<std::chrono::steady_clock::time_point> arrival_times_;
+  std::vector<double> callback_age_ms_;
+  mutable std::vector<double> policy_image_age_ms_;
 };
 
 }  // namespace legged_rl_deploy
