@@ -184,12 +184,12 @@ ros2 run legged_rl_deploy depth_image_preprocessor_node.py \
 ```
 
 `depth_image_preprocessor_node.py` is the only depth preprocessing executable.
-Each policy YAML selects an ordered subset of `stereo_occlusion`,
-`replace_invalid`, `clip`, `center_crop`, `resize_nearest`, and `affine`.
+Each policy YAML selects an ordered subset of `replace_invalid`, `clip`,
+`center_crop`, `resize_nearest`, and `affine`.
 The node rejects unknown, repeated, out-of-order, missing, and unused operation
-parameters at startup. The Bridge YAML includes simulation-only stereo
-occlusion in the same pipeline; remove that operation and its parameter block
-when using a physical stereo camera.
+parameters at startup. Sensor noise belongs to the simulator that produces the
+image; the same preprocessing pipeline is used for simulated and physical
+camera topics.
 
 The wrapper:
 

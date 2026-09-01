@@ -22,7 +22,6 @@ from rclpy.qos import (
 from sensor_msgs.msg import CameraInfo, Image
 
 _PROCESS_ORDER = (
-    "stereo_occlusion",
     "replace_invalid",
     "clip",
     "center_crop",
@@ -46,12 +45,6 @@ _REQUIRED_PARAMETERS = {
 }
 
 _OPERATION_PARAMETERS = {
-    "stereo_occlusion": {
-        "stereo_occlusion.baseline_m": Parameter.Type.DOUBLE,
-        "stereo_occlusion.min_depth_jump_m": Parameter.Type.DOUBLE,
-        "stereo_occlusion.max_width_px": Parameter.Type.INTEGER,
-        "stereo_occlusion.side": Parameter.Type.STRING,
-    },
     "replace_invalid": {
         "replace_invalid.valid_min": Parameter.Type.DOUBLE,
         "replace_invalid.valid_min_inclusive": Parameter.Type.BOOL,
@@ -165,53 +158,6 @@ def validate_camera_info(
         )
 
 
-def stereo_occlusion_mask(
-    depth_m: np.ndarray,
-    *,
-    focal_length_px: float,
-    baseline_m: float,
-    min_depth_jump_m: float,
-    max_width_px: int,
-    side: str,
-) -> np.ndarray:
-    """Return far-side pixels hidden from the other stereo imager."""
-    height, image_width = depth_m.shape
-    mask = np.zeros((height, image_width), dtype=bool)
-    if image_width < 2:
-        return mask
-
-    valid = np.isfinite(depth_m) & (depth_m > 0.0)
-    left = depth_m[:, :-1]
-    right = depth_m[:, 1:]
-    valid_pair = valid[:, :-1] & valid[:, 1:]
-
-    if side == "left":
-        far = left
-        near = right
-    else:
-        near = left
-        far = right
-
-    edge = valid_pair & ((far - near) >= min_depth_jump_m)
-    inverse_depth_delta = np.zeros_like(far, dtype=np.float32)
-    inverse_depth_delta[edge] = 1.0 / near[edge] - 1.0 / far[edge]
-
-    widths = np.zeros_like(far, dtype=np.int32)
-    widths[edge] = np.minimum(
-        np.ceil(focal_length_px * baseline_m * inverse_depth_delta[edge]),
-        max_width_px,
-    ).astype(np.int32)
-
-    expansion = min(max_width_px, image_width - 1)
-    for offset in range(expansion):
-        active = edge & (widths > offset)
-        if side == "left":
-            mask[:, : image_width - 1 - offset] |= active[:, offset:]
-        else:
-            mask[:, 1 + offset :] |= active[:, : image_width - 1 - offset]
-    return mask
-
-
 def center_crop(depth: np.ndarray, width: int, height: int) -> np.ndarray:
     """Return a centered crop with the requested dimensions."""
     source_height, source_width = depth.shape
@@ -311,7 +257,6 @@ class DepthImagePreprocessorNode(Node):
         self._stats_timer = self.create_timer(1.0, self._log_statistics)
 
         self.camera_info_valid = False
-        self.focal_length_px = 0.0
         self.depth_publisher = self.create_publisher(
             Image, self.output_topic, _SENSOR_DATA_QOS
         )
@@ -460,26 +405,6 @@ class DepthImagePreprocessorNode(Node):
             for name in present:
                 setattr(self, name.replace(".", "_"), self._required(name))
 
-        if "stereo_occlusion" in self.process_order:
-            if (
-                not math.isfinite(self.stereo_occlusion_baseline_m)
-                or self.stereo_occlusion_baseline_m <= 0.0
-            ):
-                raise ValueError(
-                    "stereo_occlusion.baseline_m must be finite and positive"
-                )
-            if (
-                not math.isfinite(self.stereo_occlusion_min_depth_jump_m)
-                or self.stereo_occlusion_min_depth_jump_m <= 0.0
-            ):
-                raise ValueError(
-                    "stereo_occlusion.min_depth_jump_m must be finite and positive"
-                )
-            if self.stereo_occlusion_max_width_px <= 0:
-                raise ValueError("stereo_occlusion.max_width_px must be positive")
-            if self.stereo_occlusion_side not in ("left", "right"):
-                raise ValueError("stereo_occlusion.side must be left or right")
-
         if "replace_invalid" in self.process_order:
             if not math.isfinite(self.replace_invalid_valid_min):
                 raise ValueError("replace_invalid.valid_min must be finite")
@@ -526,7 +451,6 @@ class DepthImagePreprocessorNode(Node):
         )
         if not self.camera_info_valid:
             self.get_logger().info("camera_info matches the configured input contract")
-        self.focal_length_px = float(message.k[0])
         self.camera_info_valid = True
         subscription = self._camera_info_subscription
         if subscription is not None:
@@ -560,17 +484,7 @@ class DepthImagePreprocessorNode(Node):
         fast_u16_path = message.encoding == "16UC1" and self._u16_pipeline_is_noop
         if not fast_u16_path:
             for operation in self.process_order:
-                if operation == "stereo_occlusion":
-                    mask = stereo_occlusion_mask(
-                        depth_m,
-                        focal_length_px=self.focal_length_px,
-                        baseline_m=self.stereo_occlusion_baseline_m,
-                        min_depth_jump_m=self.stereo_occlusion_min_depth_jump_m,
-                        max_width_px=self.stereo_occlusion_max_width_px,
-                        side=self.stereo_occlusion_side,
-                    )
-                    depth_m[mask] = 0.0
-                elif operation == "replace_invalid":
+                if operation == "replace_invalid":
                     invalid = ~np.isfinite(depth_m)
                     if self.replace_invalid_valid_min_inclusive:
                         invalid |= depth_m < self.replace_invalid_valid_min

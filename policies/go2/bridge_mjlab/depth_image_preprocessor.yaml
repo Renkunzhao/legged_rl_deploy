@@ -16,14 +16,7 @@ depth_image_preprocessor_node:
     output:
       topic: /bridge_mjlab_raw_depth/depth_image
 
-    # stereo_occlusion is simulation-only. Remove it and its parameter block
-    # when the input comes from a physical stereo camera.
-    process_order: [stereo_occlusion, replace_invalid, clip, resize_nearest, affine]
-    stereo_occlusion:
-      baseline_m: 0.050
-      min_depth_jump_m: 0.20
-      max_width_px: 24
-      side: left
+    process_order: [replace_invalid, clip, resize_nearest, affine]
     replace_invalid:
       valid_min: 0.0
       valid_min_inclusive: false

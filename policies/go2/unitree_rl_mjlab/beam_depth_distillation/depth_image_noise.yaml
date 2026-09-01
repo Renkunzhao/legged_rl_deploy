@@ -1,0 +1,19 @@
+depth_image_noise:
+  seed: 42
+  process_order: [stereo_occlusion, correlated_dropout, pixel_dropout]
+
+  # D435i left-imager approximation at the 424x240 source resolution.
+  stereo_occlusion:
+    baseline_m: 0.050
+    min_depth_jump_m: 0.20
+    max_width_px: 24
+    side: left
+
+  # Low-resolution Gaussian field, bilinearly expanded and evolved per frame.
+  correlated_dropout:
+    cell_size_px: 8
+    threshold_std: 2.65
+    temporal_correlation: 0.95
+
+  pixel_dropout:
+    probability: 0.002
