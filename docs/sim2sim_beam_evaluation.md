@@ -16,12 +16,18 @@ export ROS_DOMAIN_ID=1
 ros2 run unitree_mujoco unitree_mujoco \
   -r go2 -s scene_bridge.xml \
   --depth-camera --no-viewer --no-joystick --beam-monitor \
+  --depth-noise-config \
+  path/to/depth_image_noise.yaml \
   --episode-timeout 20.0
 ```
 
 `--no-viewer` skips the main render loop but still uses GLFW for the hidden
 OpenGL context and offscreen depth camera. A working `DISPLAY` is therefore
 still required; this is not an EGL display-server-free mode.
+
+The absolute noise YAML path may instead be set as
+`depth_camera.noise_config_path` in `unitree_mujoco`'s `config.yaml`. The CLI
+value overrides it. The depth preprocessor below does not add sensor noise.
 
 Start the depth preprocessor in a second terminal with the same environment:
 

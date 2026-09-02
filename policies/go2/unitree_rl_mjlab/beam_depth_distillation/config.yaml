@@ -14,7 +14,7 @@ policy:
         shape: [1, 47]
         source: observations
       - name: depth
-        shape: [1, 1, 240, 424]
+        shape: [1, 1, 120, 212]
         source: external.depth
       - name: h_in
         source: state.hidden
@@ -61,6 +61,8 @@ policy:
       max: 3.0
       scale: 0.25
       offset: [-0.1, 0.9, -1.8, 0.1, 0.9, -1.8, -0.1, 0.9, -1.8, 0.1, 0.9, -1.8]
+      # Hardware Hip outward bias: front 0.04 rad, rear 0.02 rad
+      # offset: [-0.06, 0.9, -1.8, 0.06, 0.9, -1.8, -0.08, 0.9, -1.8, 0.08, 0.9, -1.8]
 
   # Exact 47D actor order. Learned proprioceptive normalization is in the ONNX graph.
   observations:

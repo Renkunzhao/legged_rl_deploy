@@ -1,0 +1,20 @@
+/camera/camera:
+  ros__parameters:
+    enable_depth: true
+    enable_color: false
+
+    depth_module.profile: "848x480x60"
+    depth_module.global_time_enabled: true
+    depth_module.enable_auto_exposure: false
+    depth_module.emitter_enabled: 1
+
+    decimation_filter.enable: true
+    decimation_filter.filter_magnitude: 4
+
+    disparity_filter.enable: true
+    hole_filling_filter.enable: true
+    hole_filling_filter.holes_fill: 1
+    disparity_to_depth.enable: true
+
+    spatial_filter.enable: true
+    temporal_filter.enable: true
