@@ -10,15 +10,17 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <yaml-cpp/yaml.h>
 
+#include "legged_rl_deploy/external/tensor_input.h"
+
 namespace legged_rl_deploy {
 
-class RosImageTensorInput {
+class RosImageTensorInput final : public TensorInput {
 public:
   RosImageTensorInput(rclcpp::Node& node, const std::string& source_name,
                       const YAML::Node& config,
                       const std::vector<int64_t>& tensor_shape);
 
-  void read(std::vector<float>& destination) const;
+  void read(std::vector<float>& destination) const override;
 
 private:
   void callback(const sensor_msgs::msg::Image& message);

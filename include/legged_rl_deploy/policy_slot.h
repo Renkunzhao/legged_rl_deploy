@@ -7,9 +7,10 @@
 #include <unordered_map>
 #include <vector>
 
+#include <rclcpp/rclcpp.hpp>
 #include <yaml-cpp/yaml.h>
 
-#include "legged_rl_deploy/external/ros_image_tensor_input.h"
+#include "legged_rl_deploy/external/tensor_input.h"
 #include "legged_rl_deploy/motion/mimic_source.h"
 #include "legged_rl_deploy/policy/i_policy_runner.h"
 #include "legged_rl_deploy/processor.h"
@@ -108,7 +109,7 @@ private:
   std::vector<float> raw_output_;
   std::vector<RuntimeTensor> runtime_inputs_;
   std::unordered_map<std::string, std::vector<float>> external_input_buffers_;
-  std::unordered_map<std::string, std::unique_ptr<RosImageTensorInput>>
+  std::unordered_map<std::string, std::unique_ptr<TensorInput>>
       external_inputs_;
 
   float policy_dt_ = 0.02f;

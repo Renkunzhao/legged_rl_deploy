@@ -1,5 +1,8 @@
 #include "legged_rl_deploy/policy_slot.h"
 
+#include "legged_rl_deploy/external/ros_float32_tensor_input.h"
+#include "legged_rl_deploy/external/ros_image_tensor_input.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -500,10 +503,19 @@ void PolicySlot::initExternalInputs() {
     configured_names.emplace(external_name);
     auto inserted = external_input_buffers_.emplace(
         input.source, std::vector<float>(input.size, 0.0f));
-    external_inputs_.emplace(
-        input.source,
-        std::make_unique<RosImageTensorInput>(node_, input.source, config,
-                                               input.shape));
+    const std::string type = config["type"].as<std::string>();
+    std::unique_ptr<TensorInput> external;
+    if (type == "ros_image") {
+      external = std::make_unique<RosImageTensorInput>(
+          node_, input.source, config, input.shape);
+    } else if (type == "ros_float32_multi_array") {
+      external = std::make_unique<RosFloat32TensorInput>(
+          node_, input.source, config, input.shape);
+    } else {
+      throw std::runtime_error("[PolicySlot:" + name_ +
+                               "] unsupported external input type " + type);
+    }
+    external_inputs_.emplace(input.source, std::move(external));
     runtime_inputs_.push_back(
         {input.source, inserted.first->second.data(), inserted.first->second.size()});
   }

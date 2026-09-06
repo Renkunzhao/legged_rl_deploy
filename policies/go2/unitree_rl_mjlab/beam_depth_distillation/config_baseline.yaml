@@ -1,0 +1,95 @@
+# Beam depth student: inertial_source=none, implicit_history=true.
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+ll_dt: 0.005
+clip_final_tau: false
+
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2/unitree_rl_mjlab/beam_depth_distillation/policy_baseline.onnx
+  policy_dt: 0.02
+
+  model:
+    inputs:
+      - name: actor
+        shape: [1, 47]
+        source: observations
+      - name: depth
+        shape: [1, 1, 120, 212]
+        source: external.depth
+      - name: h_in
+        source: state.perception_hidden
+      - name: adaptation_h_in
+        source: state.implicit_hidden
+    outputs:
+      - name: actions
+        shape: [1, 12]
+        target: actions
+      - name: h_out
+        target: state.perception_hidden
+      - name: adaptation_h_out
+        target: state.implicit_hidden
+      - name: inertial_output
+        shape: [1, 6]
+        target: discard
+    states:
+      perception_hidden:
+        shape: [1, 1, 128]
+        initialization: zeros
+        max_norm: 12.0
+      implicit_hidden:
+        shape: [1, 1, 64]
+        initialization: zeros
+        max_norm: 8.1
+
+  external_inputs:
+    depth:
+      type: ros_image
+      topic: /unitree_go2_beam_depth/depth_m
+      encoding: 32FC1
+      timeout_sec: 0.2
+      # Full positive Z16 range after the millimeter-to-meter conversion.
+      value_range: [0.0, 65.5351]
+
+  # Policy joint order: FL, FR, RL, RR. Go2 hardware order: FR, FL, RR, RL.
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  stiffness: [20.0, 20.0, 40.0, 20.0, 20.0, 40.0, 20.0, 20.0, 40.0, 20.0, 20.0, 40.0]
+  damping: [1.0, 1.0, 2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 2.0]
+
+  # Training commands are standing or straight forward in [0.2, 1.0] m/s.
+  # The zero lower bound preserves a deliberate standing command from the stick.
+  commands:
+    base_velocity:
+      process_order: [scale, clip]
+      scale: [1.0, 0.0, 0.0]
+      min: [0.0, 0.0, 0.0]
+      max: [0.6, 0.0, 0.0]
+
+  actions:
+    JointPositionAction:
+      process_order: [clip, scale, offset]
+      min: -3.0
+      max: 3.0
+      scale: 0.25
+      offset: [-0.1, 0.9, -1.8, 0.1, 0.9, -1.8, -0.1, 0.9, -1.8, 0.1, 0.9, -1.8]
+      # Hardware Hip outward bias: front 0.04 rad, rear 0.02 rad
+      # offset: [-0.06, 0.9, -1.8, 0.06, 0.9, -1.8, -0.08, 0.9, -1.8, 0.08, 0.9, -1.8]
+
+  # Exact 47D actor order. Learned proprioceptive normalization is in the ONNX graph.
+  observations:
+    terms:
+      base_ang_vel_B:
+      projected_gravity:
+      velocity_commands:
+      gait_phase_2:
+        params:
+          cycle_time: 0.6
+          command_threshold: 0.1
+          reset_on_motion: true
+      joint_pos:
+        process_order: [offset]
+        offset: [0.1, -0.9, 1.8, -0.1, -0.9, 1.8, 0.1, -0.9, 1.8, -0.1, -0.9, 1.8]
+      joint_vel:
+      last_action:
+        process_order: [clip]
+        min: -3.0
+        max: 3.0

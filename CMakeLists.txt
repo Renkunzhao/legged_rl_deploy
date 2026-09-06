@@ -33,6 +33,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 set(interfaces_target ${PROJECT_NAME}_interfaces)
 rosidl_generate_interfaces(${interfaces_target}
@@ -46,6 +47,7 @@ rosidl_generate_interfaces(${interfaces_target}
 add_library(${PROJECT_NAME}
     src/policy/i_policy_runner.cpp
     src/policy/policy_factory.cpp
+    src/external/ros_float32_tensor_input.cpp
     src/external/ros_image_tensor_input.cpp
     src/policy_slot.cpp
     src/legged_rl_deploy.cpp
@@ -71,6 +73,7 @@ target_link_libraries(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   sensor_msgs
+  std_msgs
 )
 
 if(COMMAND rosidl_get_typesupport_target)
@@ -211,6 +214,7 @@ ament_export_dependencies(
   legged_base
   rclcpp
   sensor_msgs
+  std_msgs
   rosidl_default_runtime
 )
 
