@@ -86,7 +86,7 @@ void PolicySlot::init() {
       if (maybe) commands_.emplace(cname, std::move(*maybe));
     }
     const YAML::Node base_velocity = pnode["commands"]["base_velocity"];
-    if (base_velocity) {
+    if (base_velocity && !base_velocity.IsNull()) {
       if (!base_velocity.IsMap()) {
         throw std::runtime_error("[PolicySlot:" + name_ +
                                  "] commands.base_velocity must be a map");
