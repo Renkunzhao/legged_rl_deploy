@@ -28,6 +28,7 @@ public:
     std::vector<int64_t> shape;
     size_t size = 0;
     std::string binding;
+    std::string topic;
   };
 
   virtual ~IPolicyRunner() = default;
@@ -41,10 +42,14 @@ public:
   const std::vector<RuntimeInputSpec>& runtimeInputSpecs() const {
     return runtime_input_specs_;
   }
+  const std::vector<TensorSpec>& modelOutputs() const { return model_outputs_; }
+  // Read only after a successful infer; buffers are reused by the next inference.
+  const std::vector<float>& outputBuffer(size_t index) const {
+    return output_buffers_.at(index);
+  }
 
 protected:
   const std::vector<TensorSpec>& modelInputs() const { return model_inputs_; }
-  const std::vector<TensorSpec>& modelOutputs() const { return model_outputs_; }
 
   virtual void loadBackend(const std::string& model_path) = 0;
   virtual void runBackend(const std::vector<const float*>& inputs,

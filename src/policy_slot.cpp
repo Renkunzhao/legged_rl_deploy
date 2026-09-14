@@ -141,6 +141,21 @@ void PolicySlot::init() {
   initMimicSource();
   initExternalInputs();
 
+  published_outputs_.clear();
+  const auto& model_outputs = policy_runner_->modelOutputs();
+  for (size_t i = 0; i < model_outputs.size(); ++i) {
+    const auto& output = model_outputs[i];
+    if (output.binding != "ros_topic") continue;
+    PublishedOutput published;
+    published.index = i;
+    published.publisher = node_.create_publisher<std_msgs::msg::Float32MultiArray>(
+        output.topic, rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
+    published.message.data.resize(output.size);
+    published_outputs_.push_back(std::move(published));
+    RCLCPP_INFO(node_.get_logger(), "[PolicySlot:%s] Publishing %s (%zu floats) on %s",
+                name_.c_str(), output.name.c_str(), output.size, output.topic.c_str());
+  }
+
   std::cout << "[PolicySlot:" << name_ << "] init done. input_dim=" << input_dim_
             << " output_dim=" << output_dim_ << std::endl;
 }
@@ -843,6 +858,11 @@ void PolicySlot::updatePolicy(const LeggedState& state,
 
   auto it = actions_.find("JointPositionAction");
   if (it != actions_.end()) it->second.process(output_buf_);
+
+  for (auto& output : published_outputs_) {
+    output.message.data = policy_runner_->outputBuffer(output.index);
+    output.publisher->publish(output.message);
+  }
 }
 
 void PolicySlot::update(const LeggedState& state,

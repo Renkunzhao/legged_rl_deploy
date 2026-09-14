@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include "legged_rl_deploy/external/tensor_input.h"
@@ -71,6 +72,12 @@ private:
     size_t dim = 0;
   };
 
+  struct PublishedOutput {
+    size_t index;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr publisher;
+    std_msgs::msg::Float32MultiArray message;
+  };
+
   void registryObsTerms(YAML::Node node);
   void calculateObsTerm(ObsTerm& term);
   void parseAssemble(const YAML::Node& observations);
@@ -107,6 +114,7 @@ private:
   std::vector<float> input_buf_;
   std::vector<float> output_buf_;
   std::vector<float> raw_output_;
+  std::vector<PublishedOutput> published_outputs_;
   std::vector<RuntimeTensor> runtime_inputs_;
   std::unordered_map<std::string, std::vector<float>> external_input_buffers_;
   std::unordered_map<std::string, std::unique_ptr<TensorInput>>

@@ -236,7 +236,10 @@ contract under `policy.model`:
 - `model.outputs`: tensor `name`, concrete `shape`, and `target`
 - input sources: `observations`, `external.<name>`, `state.<name>`, or
   `constant`
-- output targets: `actions`, `state.<name>`, or `discard`
+- output targets: `actions`, `state.<name>`, `discard`, or `ros_topic`
+- `ros_topic` outputs require a nonempty `topic` and publish flattened float32
+  tensors as `std_msgs/msg/Float32MultiArray` after each successful active-policy
+  inference. Warm-up and reset do not publish outputs.
 - `model.states`: zero-initialized explicit loop buffers with an optional
   `max_norm`
 

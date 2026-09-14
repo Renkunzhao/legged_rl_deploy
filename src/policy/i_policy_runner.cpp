@@ -201,11 +201,22 @@ void IPolicyRunner::parseContract(const YAML::Node& policy_node) {
                                                     std::to_string(i) + "]");
         action_output_index_ = i;
         ++action_count;
-      } else if (tensor.binding == "discard") {
+      } else if (tensor.binding == "discard" || tensor.binding == "ros_topic") {
         tensor.shape = loadShape(spec["shape"], "policy.model.outputs[" +
                                                     std::to_string(i) + "]");
       } else {
         throw std::runtime_error("unsupported output target " + tensor.binding);
+      }
+      if (tensor.binding == "ros_topic") {
+        if (!spec["topic"] || !spec["topic"].IsScalar() ||
+            spec["topic"].as<std::string>().empty()) {
+          throw std::runtime_error("model output " + tensor.name +
+                                   " with target ros_topic requires a non-empty topic");
+        }
+        tensor.topic = spec["topic"].as<std::string>();
+      } else if (spec["topic"]) {
+        throw std::runtime_error("model output " + tensor.name +
+                                 " topic requires target ros_topic");
       }
       tensor.size = tensorSize(tensor.shape, "model output " + tensor.name);
       model_outputs_.push_back(std::move(tensor));
