@@ -9,7 +9,7 @@
     depth_module.emitter_enabled: 1
 
     decimation_filter.enable: true
-    decimation_filter.filter_magnitude: 4
+    decimation_filter.filter_magnitude: 2
 
     disparity_filter.enable: true
     hole_filling_filter.enable: true
@@ -17,4 +17,4 @@
     disparity_to_depth.enable: true
 
     spatial_filter.enable: true
-    temporal_filter.enable: true
+    temporal_filter.enable: false

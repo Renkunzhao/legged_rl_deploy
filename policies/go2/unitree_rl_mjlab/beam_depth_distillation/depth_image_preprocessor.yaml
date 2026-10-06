@@ -2,13 +2,13 @@ depth_image_preprocessor_node:
   ros__parameters:
     input:
       topic: /camera/depth/image_rect_raw
-      width: 212
-      height: 120
+      width: 424
+      height: 240
       depth_scale_16uc1: 0.001
       camera_info:
         topic: /camera/depth/camera_info
         # calibrated 848x480 stream after decimation factor 4: [fx, fy, cx, cy].
-        intrinsics: [107.55355072021475, 107.55355072021475, 106.8992919921875, 59.2901763916015]
+        intrinsics: [215.10710144043, 215.10710144043, 213.798583984375, 118.580352783203]
         intrinsics_atol: 0.001
         distortion_model: plumb_bob
         distortion: [0.0, 0.0, 0.0, 0.0, 0.0]

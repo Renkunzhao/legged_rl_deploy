@@ -5,7 +5,9 @@ clip_final_tau: false
 
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2/unitree_rl_mjlab/beam_depth_distillation/policy_baseline.onnx
+  # model_path: src/legged_rl_deploy/policies/go2/unitree_rl_mjlab/beam_depth_distillation/2026-09-10_17-08-31_Distillation-his_true-None-payload8-width0.09_0.11-frozen-no_est-rel424-gpu2x1024-model_6000.onnx
+  # model_path: src/legged_rl_deploy/policies/go2/unitree_rl_mjlab/beam_depth_distillation/2026-09-12_05-48-43_Distillation-his_true-None-payload8-width0.08_0.1-z-h_0.2_0.6xl_0.7_0.9xw_0.6_0.8_pier_0_5-comy0.1-20000.onnx
+  model_path: src/legged_rl_deploy/policies/go2/unitree_rl_mjlab/beam_depth_distillation/2026-09-14_15-56-52_Distillation-his_true-None-payload8-width0.08_0.1-z-h_0.2_0.6xl_0.7_0.9xw_0.6_0.8_pier_0_5-comy0.1-10300.onnx
   policy_dt: 0.02
 
   model:
@@ -14,7 +16,7 @@ policy:
         shape: [1, 47]
         source: observations
       - name: depth
-        shape: [1, 1, 120, 212]
+        shape: [1, 1, 240, 424]
         source: external.depth
       - name: h_in
         source: state.perception_hidden
