@@ -1,0 +1,47 @@
+# MJ35 model_12000, unitree_rl_mjlab/go2-trampoline. Paths relative to $WORKSPACE.
+llc_config_file: src/unitree_lowlevel/config/go2.yaml
+ll_dt: 0.005
+
+policy:
+  backend: ort
+  model_path: src/legged_rl_deploy/policies/go2/trampoline/policy.onnx
+  input_dim: 1046
+  output_dim: 12
+  policy_dt: 0.02
+  # Policy: FL, FR, RL, RR; hardware: FR, FL, RR, RL (hip/thigh/calf).
+  joint_ids_map: [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+  stiffness: [17.6918024551, 17.6918024551, 65.2190605706, 17.6918024551, 17.6918024551, 65.2190605706, 17.6918024551, 17.6918024551, 65.2190605706, 17.6918024551, 17.6918024551, 65.2190605706]
+  damping: [1.1262951252, 1.1262951252, 4.1519743494, 1.1262951252, 1.1262951252, 4.1519743494, 1.1262951252, 1.1262951252, 4.1519743494, 1.1262951252, 1.1262951252, 4.1519743494]
+
+  actions:
+    JointPositionAction:
+      process_order: [scale, offset]
+      scale: [0.3349008681, 0.3349008681, 0.1741438760, 0.3349008681, 0.3349008681, 0.1741438760, 0.3349008681, 0.3349008681, 0.1741438760, 0.3349008681, 0.3349008681, 0.1741438760]
+      offset: [-0.1, 0.9, -1.8, 0.1, 0.9, -1.8, -0.1, 0.9, -1.8, 0.1, 0.9, -1.8]
+
+  observations:
+    # Term-major, oldest first, first frame repeated on reset (mjlab CircularBuffer).
+    # Normalization is embedded in ONNX. No observation scaling except q offset.
+    terms:
+      trampoline_command:
+        params:
+          heights: [1.3, 1.3, 1.3]  # hop, single flip, double flip; world apex z (m)
+        length: 20
+      projected_gravity:
+        length: 20
+      base_ang_vel_B:
+        length: 20
+      joint_pos:
+        length: 20
+        process_order: [offset]
+        offset: [0.1, -0.9, 1.8, -0.1, -0.9, 1.8, 0.1, -0.9, 1.8, -0.1, -0.9, 1.8]
+      joint_vel:
+        length: 20
+      last_action:
+        length: 20
+        process_order: [clip]
+        min: -100.0
+        max: 100.0
+      constants:
+        params:
+          vec: [0, 0, 0, 0, 0, 0]  # hidden trampoline properties, no history

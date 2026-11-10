@@ -131,6 +131,8 @@ private:
   std::vector<float> velocity_command_{0.0f, 0.0f, 0.0f};
   std::vector<float> velocity_rate_limit_;
   float support_width_command_ = 0.0f;
+  std::vector<float> trampoline_command_{0, 0, 0, 1, 0, 0, 0, 0, 0, 0};
+  std::vector<float> trampoline_heights_;
   // State for gait_phase_2 reset-on-motion behavior.
   bool gait_phase_motion_active_ = false;
   float gait_phase_elapsed_sec_ = 0.0f;

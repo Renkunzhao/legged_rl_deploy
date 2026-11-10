@@ -167,6 +167,7 @@ void PolicySlot::reset(const LeggedState& state) {
   std::fill(last_action_.begin(), last_action_.end(), 0.0f);
   std::fill(obs_now_.begin(), obs_now_.end(), 0.0f);
   std::fill(velocity_command_.begin(), velocity_command_.end(), 0.0f);
+  trampoline_command_ = {0, 0, 0, 1, 0, 0, 0, 0, 0, 0};
   for (auto& now : term_now_) std::fill(now.begin(), now.end(), 0.0f);
   for (auto& hist : term_hist_) hist.clear();
   has_valid_output_ = false;
@@ -265,6 +266,21 @@ void PolicySlot::registryObsTerms(YAML::Node node) {
 }
 
 void PolicySlot::calculateObsTerm(ObsTerm& term) {
+  if (term.name == "trampoline_command") {
+    trampoline_heights_ = term.params["heights"].as<std::vector<float>>();
+    const std::vector<float> minimum{0.5f, 0.7f, 1.0f};
+    if (trampoline_heights_.size() != minimum.size()) {
+      throw std::runtime_error("trampoline_command heights requires [hop, single, double]");
+    }
+    for (size_t i = 0; i < minimum.size(); ++i) {
+      if (!std::isfinite(trampoline_heights_[i]) ||
+          trampoline_heights_[i] < minimum[i] || trampoline_heights_[i] > 1.3f) {
+        throw std::runtime_error("trampoline_command heights outside trained ranges");
+      }
+    }
+    term.dim = 10;
+    return;
+  }
   if (term.name == "constants") {
     if (!term.params || !term.params["vec"]) {
       throw std::runtime_error("[PolicySlot:" + name_ + "] constants requires params.vec");
@@ -686,6 +702,9 @@ void PolicySlot::assembleObsFrame(const LeggedState& state,
         v[1] = std::cos(kTwoPi * phase);
       }
 
+    } else if (term.name == "trampoline_command") {
+      v = trampoline_command_;
+
     } else if (term.name == "hop_command") {
       v[0] = term.params["peak_height"].as<float>(0.7f);
 
@@ -868,6 +887,31 @@ void PolicySlot::updatePolicy(const LeggedState& state,
 void PolicySlot::update(const LeggedState& state,
                         const unitree::common::Gamepad& gamepad,
                         size_t loop_cnt, double ll_dt) {
+  // Capture button edges at the low-level rate, before policy decimation.
+  // L2 combinations belong to the low-level controller (including emergency stop).
+  if (!trampoline_heights_.empty() && !gamepad.L2.pressed) {
+    int skill = -1;
+    float axis_x = 0.0f, axis_y = 0.0f;
+    if (gamepad.B.on_press) {
+      skill = 0;  // stand
+    } else if (gamepad.A.on_press) {
+      skill = 1;  // hop
+    } else if (gamepad.up.on_press || gamepad.down.on_press ||
+               gamepad.right.on_press || gamepad.left.on_press) {
+      skill = gamepad.L1.pressed ? 3 : 2;
+      if (gamepad.up.on_press) axis_y = 1.0f;
+      else if (gamepad.down.on_press) axis_y = -1.0f;
+      else if (gamepad.right.on_press) axis_x = 1.0f;
+      else axis_x = -1.0f;
+    }
+    if (skill >= 0) {
+      std::fill(trampoline_command_.begin(), trampoline_command_.end(), 0.0f);
+      trampoline_command_[3 + skill] = 1.0f;
+      if (skill > 0) trampoline_command_[0] = trampoline_heights_[skill - 1];
+      trampoline_command_[1] = axis_x;
+      trampoline_command_[2] = axis_y;
+    }
+  }
   if (mimic_source_) {
     mimic_source_->onGamepad(gamepad);
   }
