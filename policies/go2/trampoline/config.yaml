@@ -1,10 +1,11 @@
-# MJ35 model_12000, unitree_rl_mjlab/go2-trampoline. Paths relative to $WORKSPACE.
+# 2 ms aligned model_11250, unitree_rl_mjlab/go2-trampoline. Paths relative to $WORKSPACE.
 llc_config_file: src/unitree_lowlevel/config/go2.yaml
 ll_dt: 0.005
 
 policy:
   backend: ort
-  model_path: src/legged_rl_deploy/policies/go2/trampoline/policy.onnx
+  # model_path: src/legged_rl_deploy/policies/go2/trampoline/policy.onnx
+  model_path: src/legged_rl_deploy/policies/go2/trampoline/policy_chain_deploy_2ms_s42_11250.onnx
   input_dim: 1046
   output_dim: 12
   policy_dt: 0.02
