@@ -161,6 +161,13 @@ void LeggedRLDeploy::initHighController() {
   if (configNode_["clip_final_tau"]) {
     clip_final_tau_ = configNode_["clip_final_tau"].as<bool>();
   }
+  if (configNode_["enable_torque_clip"]) {
+    enable_torque_clip_ = configNode_["enable_torque_clip"].as<bool>();
+  }
+  if (!enable_torque_clip_) {
+    RCLCPP_WARN(get_logger(),
+                "[LeggedRLDeploy] LowLevel torqueClip is DISABLED by configuration.");
+  }
   if (configNode_["tau_max"]) {
     robot_model_.setTauMaxOrder(legged_base::yamlToEigenVec(configNode_["tau_max"]));
   }
