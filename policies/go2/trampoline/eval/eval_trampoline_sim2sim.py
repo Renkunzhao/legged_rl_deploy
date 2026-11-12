@@ -289,7 +289,7 @@ def summarize_chain(flights, recovery):
     }
 
 
-def command_switch_ready(phase, t, flight, velocity_z, new_contact):
+def command_switch_ready(phase, t, flight, velocity_z, new_contact, apex_vz=0.0):
     """Whether the next command should be sent at this flight sample.
 
     ``apex`` (default) and ``landing`` keep the manual-like timing: after the
@@ -297,12 +297,17 @@ def command_switch_ready(phase, t, flight, velocity_z, new_contact):
     for ``TAKEOFF_SWITCH_DELAY_S``, i.e. the first sample after liftoff, which is
     the training reveal (``reveal_lead_time`` covers the whole flight).  The
     caller's ``pending`` guard makes any phase fire at most once per flight.
+
+    ``apex_vz`` shifts the apex trigger in time by moving the vertical-velocity
+    threshold away from zero: a positive value fires while the robot is still
+    rising (an early, human-like press), a negative one waits until it falls
+    faster (a late press).  Zero is the exact-apex baseline.
     """
     if phase == "landing":
         return bool(new_contact)
     if phase == "takeoff":
         return float(t) >= float(flight["first_air_t"]) + TAKEOFF_SWITCH_DELAY_S
-    return bool(velocity_z <= 0 and t - flight["takeoff_t"] > .1)
+    return bool(velocity_z <= apex_vz and t - flight["takeoff_t"] > .1)
 
 
 def result_counts(records):
@@ -662,7 +667,7 @@ class TrampolineEvaluator(ControllerDriver):
                 # first airborne sample (training reveal), or on touchdown.
                 ready = command_switch_ready(
                     self.args.switch_phase, t, flight, s["velocity"][2],
-                    new_contact)
+                    new_contact, self.args.apex_vz)
                 if ready and not pending:
                     role = flight["role"]
                     if chain_terminated:
@@ -807,6 +812,10 @@ def main():
                         "(default), takeoff (training reveal, 20 ms after the "
                         "first airborne sample), or landing")
     p.add_argument("--full-chain", action="store_true", help="also evaluate a recovery hop and B stand")
+    p.add_argument("--apex-vz", type=float, default=0.0,
+                   help="shift the apex trigger: >0 presses while still rising "
+                        "(early), <0 waits until falling faster (late); 0 is the "
+                        "exact apex. Used to model human key-timing jitter.")
     p.add_argument("--require-energy-height", action="store_true",
                    help="retry the initial hop until its apex is within 0.1 m, like training")
     p.add_argument("--height", type=positive_float, default=1.3)
