@@ -111,6 +111,7 @@ private:
   std::unique_ptr<IPolicyRunner> policy_runner_;
   size_t input_dim_ = 0;
   size_t output_dim_ = 0;
+  size_t policy_step_cnt_ = 0;
   std::vector<float> input_buf_;
   std::vector<float> output_buf_;
   std::vector<float> raw_output_;

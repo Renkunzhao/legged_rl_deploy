@@ -170,6 +170,7 @@ void PolicySlot::reset(const LeggedState& state) {
   trampoline_command_ = {0, 0, 0, 1, 0, 0, 0, 0, 0, 0};
   for (auto& now : term_now_) std::fill(now.begin(), now.end(), 0.0f);
   for (auto& hist : term_hist_) hist.clear();
+  policy_step_cnt_ = 0;
   has_valid_output_ = false;
   policy_runner_->reset();
 
@@ -917,9 +918,10 @@ void PolicySlot::update(const LeggedState& state,
   }
 
   const int decim = std::max(1, static_cast<int>(std::lround(policy_dt_ / ll_dt)));
-  if ((loop_cnt % decim) == 0) {
+  if ((policy_step_cnt_ % static_cast<size_t>(decim)) == 0) {
     updatePolicy(state, gamepad, loop_cnt, ll_dt);
   }
+  ++policy_step_cnt_;
 }
 
 const PolicySlot::ObsTerm& PolicySlot::getObsTermByName(
