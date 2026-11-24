@@ -2,3 +2,16 @@ thirdparty/
 .venv/
 __pycache__/
 *.onnx
+
+# ROS 2 rosbag2（默认 sqlite3 存储）
+rosbag2_*/
+*.db3
+*.db3-shm
+*.db3-wal
+
+# ROS 2 rosbag2（mcap 存储）
+*.mcap
+
+# ROS 1 旧格式
+*.bag
+*.bag.active
